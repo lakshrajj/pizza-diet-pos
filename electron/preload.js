@@ -81,6 +81,13 @@ contextBridge.exposeInMainWorld('api', {
   updateUser: (id, data) => ipcRenderer.invoke('users:update', id, data),
   deleteUser: (id) => ipcRenderer.invoke('users:delete', id),
 
+  // Customers
+  getCustomers: () => ipcRenderer.invoke('customers:getAll'),
+  addCustomer: (data) => ipcRenderer.invoke('customers:add', data),
+  updateCustomer: (id, data) => ipcRenderer.invoke('customers:update', id, data),
+  deleteCustomer: (id) => ipcRenderer.invoke('customers:delete', id),
+  getCustomerOrders: (phone) => ipcRenderer.invoke('customers:getOrders', phone),
+
   // Quick Add config
   getQuickAddConfig: () => ipcRenderer.invoke('quickAdd:getConfig'),
   saveQuickAddConfig: (ids) => ipcRenderer.invoke('quickAdd:saveConfig', ids),

@@ -172,14 +172,17 @@ export default function Billing({ settings, dayClosed }) {
     }
     if (items.length === 0) { toast('No items in order'); return }
 
-    // Name OR phone required
-    if (!customerName.trim() && !customerPhone.trim()) {
-      toast('Enter customer name or phone number')
-      return
-    }
+    // Delivery: phone + name + address all required
+    // Dine-in / Takeaway: name OR phone required (at least one)
     if (orderType === 'delivery') {
-      if (!customerPhone.trim()) { toast('Phone required for delivery'); return }
-      if (!customerAddress.trim()) { toast('Address required for delivery'); return }
+      if (!customerPhone.trim()) { toast('📞 Phone number required for delivery'); return }
+      if (!customerName.trim())  { toast('👤 Customer name required for delivery'); return }
+      if (!customerAddress.trim()) { toast('📍 Address required for delivery'); return }
+    } else {
+      if (!customerName.trim() && !customerPhone.trim()) {
+        toast('👤 Enter customer name or phone number')
+        return
+      }
     }
 
     const subtotal = getSubtotal()

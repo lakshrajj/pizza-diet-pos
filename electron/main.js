@@ -308,6 +308,16 @@ function createSchema() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS customers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      phone TEXT UNIQUE,
+      address TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `)
 }
 
@@ -858,6 +868,21 @@ ipcMain.handle('order:create', (_, data) => {
     deductInventory(d.items, orderNumber)
     // Deduct stock for billable inventory items sold directly
     deductBillableInventory(d.items, orderNumber)
+    // Auto-upsert customer record ONLY for delivery orders
+    if (d.order_type === 'delivery' && d.customer_phone && d.customer_phone.trim()) {
+      const ph = d.customer_phone.trim()
+      const existing = db.prepare('SELECT id, name, address FROM customers WHERE phone = ?').get(ph)
+      if (existing) {
+        // Update name/address if they weren't set before
+        const newName = existing.name || (d.customer_name || '').trim()
+        const newAddr = existing.address || (d.customer_address || '').trim()
+        db.prepare("UPDATE customers SET name=?, address=?, updated_at=datetime('now') WHERE phone=?").run(newName, newAddr, ph)
+      } else {
+        db.prepare('INSERT OR IGNORE INTO customers (name, phone, address) VALUES (?, ?, ?)').run(
+          (d.customer_name || '').trim() || ph, ph, (d.customer_address || '').trim()
+        )
+      }
+    }
 
     return { orderId, orderNumber }
   })
@@ -876,7 +901,8 @@ function deductBillableInventory(items, orderNumber) {
     if (!invId) return
     const curr = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(invId)
     if (!curr) return
-    const newStock = Math.max(0, curr.current_stock - item.qty)
+    // Allow negative stock — sale always goes through, stock tracked accurately
+    const newStock = curr.current_stock - item.qty
     db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = datetime('now') WHERE id = ?").run(newStock, invId)
     db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id) VALUES (?, ?, ?, ?, ?)').run(
       invId, 'sale', item.qty, `Sold: ${item.item_name}`, orderNumber
@@ -1088,21 +1114,36 @@ ipcMain.handle('users:delete', (_, id) => {
 ipcMain.handle('customer:getByPhone', (_, phone) => {
   const p = (phone || '').trim()
   if (!p) return null
+
+  // 1. Check customers table first (manually added or previously saved)
+  const cust = db.prepare(`SELECT * FROM customers WHERE phone = ? OR phone LIKE ?`).get(p, `%${p}%`)
+
+  // 2. Also check order history for name/address
   const recent = db.prepare(`
     SELECT customer_name, customer_phone, customer_address
     FROM orders WHERE customer_phone LIKE ? AND status = 'billed' AND customer_phone != ''
     ORDER BY created_at DESC LIMIT 1
   `).get(`%${p}%`)
-  if (!recent) return null
-  const addrs = db.prepare(`
+
+  if (!cust && !recent) return null
+
+  // Collect all distinct addresses (from customers table + order history)
+  const orderAddrs = db.prepare(`
     SELECT DISTINCT customer_address FROM orders
     WHERE customer_phone LIKE ? AND customer_address != '' AND status = 'billed'
     ORDER BY created_at DESC LIMIT 10
-  `).all(`%${p}%`)
+  `).all(`%${p}%`).map(a => a.customer_address).filter(Boolean)
+
+  const allAddresses = cust?.address
+    ? [...new Set([cust.address, ...orderAddrs])]
+    : [...new Set(orderAddrs)]
+
   return {
-    name: recent.customer_name || '',
-    phone: recent.customer_phone || '',
-    addresses: addrs.map(a => a.customer_address).filter(Boolean),
+    name: cust?.name || recent?.customer_name || '',
+    phone: cust?.phone || recent?.customer_phone || '',
+    address: cust?.address || recent?.customer_address || '',
+    addresses: allAddresses,
+    isKnown: true,
   }
 })
 
@@ -1123,9 +1164,9 @@ ipcMain.handle('inventory:batchEntry', (_, entries, staffId) => {
       if (!item) return
       const qty = parseFloat(e.quantity) || 0
       let newStock = item.current_stock
-      if (e.movement_type === 'purchase' || e.movement_type === 'manual_add') newStock += qty
-      else if (e.movement_type === 'wastage' || e.movement_type === 'manual_remove') newStock = Math.max(0, newStock - qty)
-      else if (e.movement_type === 'manual_set') newStock = qty
+      if (e.movement_type === 'purchase' || e.movement_type === 'manual_add') newStock += Math.abs(qty)
+      else if (e.movement_type === 'wastage' || e.movement_type === 'manual_remove') newStock = Math.max(0, newStock - Math.abs(qty))
+      else if (e.movement_type === 'manual_set') newStock = Math.max(0, qty)
       db.prepare("UPDATE inventory_items SET current_stock=?, updated_at=datetime('now') WHERE id=?").run(newStock, e.inventory_item_id)
       db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id, staff_id) VALUES (?,?,?,?,?,?)').run(
         e.inventory_item_id, e.movement_type, qty, e.reason || '', e.reference || '', staffId || null
@@ -1147,6 +1188,68 @@ ipcMain.handle('inventory:getTransactions', (_, dateFrom, dateTo) => {
     WHERE DATE(sm.created_at) BETWEEN ? AND ?
     ORDER BY sm.created_at DESC LIMIT 500
   `).all(from, to)
+})
+
+// ─── CUSTOMERS IPC ───────────────────────────────────────────────────────────
+ipcMain.handle('customers:getAll', () => {
+  return db.prepare(`
+    SELECT c.*,
+      COUNT(o.id) as total_orders,
+      SUM(o.grand_total) as total_spent,
+      MAX(o.billed_at) as last_order_at
+    FROM customers c
+    LEFT JOIN orders o ON o.customer_phone = c.phone AND o.status = 'billed'
+    GROUP BY c.id
+    ORDER BY last_order_at DESC NULLS LAST, c.name ASC
+  `).all()
+})
+
+ipcMain.handle('customers:add', (_, data) => {
+  try {
+    if (!data.name || !data.name.trim()) return { success: false, error: 'Name is required' }
+    if (!data.phone || !data.phone.trim()) return { success: false, error: 'Phone is required' }
+    const r = db.prepare('INSERT INTO customers (name, phone, address, notes) VALUES (?, ?, ?, ?)').run(
+      data.name.trim(), data.phone.trim(), data.address || '', data.notes || ''
+    )
+    return { success: true, id: r.lastInsertRowid }
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE')) return { success: false, error: 'This phone number is already registered' }
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('customers:update', (_, id, data) => {
+  try {
+    if (!data.name || !data.name.trim()) return { success: false, error: 'Name is required' }
+    if (!data.phone || !data.phone.trim()) return { success: false, error: 'Phone is required' }
+    db.prepare("UPDATE customers SET name=?, phone=?, address=?, notes=?, updated_at=datetime('now') WHERE id=?").run(
+      data.name.trim(), data.phone.trim(), data.address || '', data.notes || '', id
+    )
+    return { success: true }
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE')) return { success: false, error: 'This phone number is already registered' }
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('customers:delete', (_, id) => {
+  try {
+    db.prepare('DELETE FROM customers WHERE id = ?').run(id)
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('customers:getOrders', (_, phone) => {
+  return db.prepare(`
+    SELECT o.*, GROUP_CONCAT(oi.item_name || ' x' || oi.qty, ', ') as items_summary
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.customer_phone = ? AND o.status = 'billed'
+    GROUP BY o.id
+    ORDER BY o.billed_at DESC LIMIT 50
+  `).all(phone)
 })
 
 // ─── QUICK ADD CONFIG IPC ────────────────────────────────────────────────────

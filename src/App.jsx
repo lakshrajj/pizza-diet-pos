@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuthStore } from './store/authStore'
 import { useMenuStore } from './store/menuStore'
 import { useInventoryStore } from './store/inventoryStore'
@@ -12,16 +12,22 @@ import InventoryEntry from './pages/InventoryEntry'
 import Operations from './pages/Operations'
 import CategoryManager from './pages/CategoryManager'
 import Settings from './pages/Settings'
+import CustomerManager from './pages/CustomerManager'
 
-// Pages visible in topbar nav
-const NAV = [
-  { key: 'billing',       label: 'Billing',        icon: '🧾', staffAllowed: true  },
-  { key: 'inv-entry',     label: 'Stock Entry',     icon: '📥', staffAllowed: true  },
-  { key: 'menu',          label: 'Menu Manager',    icon: '🍕', staffAllowed: false },
-  { key: 'inventory',     label: 'Inventory',       icon: '📦', staffAllowed: false },
-  { key: 'operations',    label: 'Operations',      icon: '📊', staffAllowed: true  },
-  { key: 'categories',    label: 'Categories',      icon: '⚙️', staffAllowed: false },
-  { key: 'settings',      label: 'Settings',        icon: '🔧', staffAllowed: false },
+// Pages visible in topbar nav (non-management)
+const NAV_MAIN = [
+  { key: 'billing',    label: 'Billing',      icon: '🧾', staffAllowed: true  },
+  { key: 'inv-entry',  label: 'Stock Entry',  icon: '📥', staffAllowed: true  },
+  { key: 'operations', label: 'Operations',   icon: '📊', staffAllowed: true  },
+  { key: 'settings',   label: 'Settings',     icon: '🔧', staffAllowed: false },
+]
+
+// Management dropdown pages (admin-only)
+const NAV_MGMT = [
+  { key: 'customers',  label: 'Customer Management', icon: '👥' },
+  { key: 'menu',       label: 'Menu Manager',         icon: '🍕' },
+  { key: 'inventory',  label: 'Inventory',            icon: '📦' },
+  { key: 'categories', label: 'Categories',           icon: '⚙️' },
 ]
 
 function SetupBanner() {
@@ -58,6 +64,26 @@ function AppContent() {
   const [settings, setSettings] = useState({})
   const [dayClosed, setDayClosed] = useState(false)
   const [loadingApp, setLoadingApp] = useState(true)
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true')
+  const [mgmtOpen, setMgmtOpen] = useState(false)
+  const mgmtRef = useRef(null)
+
+  // Apply dark mode class to body
+  useEffect(() => {
+    document.body.classList.toggle('dark', darkMode)
+    localStorage.setItem('darkMode', darkMode)
+  }, [darkMode])
+
+  // Close management dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (mgmtRef.current && !mgmtRef.current.contains(e.target)) {
+        setMgmtOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -87,9 +113,9 @@ function AppContent() {
     setSettings(s => ({ ...s, day_closed: 'false' }))
   }
 
-  // Refresh settings when we navigate to settings page
   const handleNav = async (key) => {
     setActivePage(key)
+    setMgmtOpen(false)
     if (key === 'billing') {
       await loadMenu()
     }
@@ -109,8 +135,7 @@ function AppContent() {
   const showSetup = hasNoCategories || hasNoItems
 
   const isAdminUser = user?.role === 'admin'
-
-  const visibleNav = NAV.filter(n => isAdminUser || n.staffAllowed)
+  const isMgmtPage = NAV_MGMT.some(n => n.key === activePage)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -118,7 +143,7 @@ function AppContent() {
       <div className="topbar">
         <span className="t-logo">🍕 Pizza Diet</span>
 
-        {visibleNav.map(n => (
+        {NAV_MAIN.filter(n => isAdminUser || n.staffAllowed).map(n => (
           <button
             key={n.key}
             className={`npill ${activePage === n.key ? 'active' : ''}`}
@@ -132,7 +157,51 @@ function AppContent() {
           </button>
         ))}
 
+        {/* Management Dropdown */}
+        {isAdminUser && (
+          <div className="mgmt-dropdown" ref={mgmtRef}>
+            <button
+              className={`npill ${isMgmtPage ? 'active' : ''}`}
+              onClick={() => setMgmtOpen(o => !o)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              🏢 Management
+              <span style={{ fontSize: 10, marginLeft: 2, opacity: 0.7 }}>{mgmtOpen ? '▲' : '▼'}</span>
+              {lowStockCount > 0 && activePage !== 'inventory' && isMgmtPage === false && (
+                <span className="badge-alert" style={{ top: 4, right: 4 }}>{lowStockCount > 9 ? '9+' : lowStockCount}</span>
+              )}
+            </button>
+            {mgmtOpen && (
+              <div className="mgmt-menu">
+                {NAV_MGMT.map(n => (
+                  <button
+                    key={n.key}
+                    className={`mgmt-item ${activePage === n.key ? 'active' : ''}`}
+                    onClick={() => handleNav(n.key)}
+                  >
+                    <span>{n.icon}</span>
+                    <span>{n.label}</span>
+                    {n.key === 'inventory' && lowStockCount > 0 && (
+                      <span style={{ marginLeft: 'auto', background: 'var(--red, #ef4444)', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>
+                        {lowStockCount > 9 ? '9+' : lowStockCount}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="t-right">
+          {/* Dark mode toggle */}
+          <button
+            className="dark-toggle"
+            onClick={() => setDarkMode(d => !d)}
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode ? '☀️' : '🌙'}
+          </button>
           <span className="t-staff">
             👤 {user?.username}
             <span style={{ marginLeft: 6, fontSize: 11, background: user?.role === 'admin' ? 'var(--accent-lt)' : 'var(--surface)', color: user?.role === 'admin' ? 'var(--accent)' : 'var(--muted)', padding: '2px 6px', borderRadius: 10, fontWeight: 700 }}>
@@ -209,6 +278,12 @@ function AppContent() {
             {activePage === 'settings' && isAdminUser && (
               <div className="page active">
                 <Settings />
+              </div>
+            )}
+
+            {activePage === 'customers' && isAdminUser && (
+              <div className="page active">
+                <CustomerManager />
               </div>
             )}
           </>
