@@ -1,15 +1,13 @@
-import { useState } from 'react'
-
 export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKitchen }) {
-  const [view, setView] = useState('customer')   // 'customer' | 'kitchen'
-
   if (!receiptData) return null
 
   const {
     orderNumber, orderType, customerName, customerPhone, customerAddress,
     items, subtotal, discount, gst, grandTotal,
-    settings, billedAt,
+    settings, billedAt, _type,
   } = receiptData
+
+  const isKitchen = _type === 'kitchen'
 
   const storeName   = settings?.store_name  || 'Pizza Diet'
   const storeAddr   = settings?.store_address || ''
@@ -22,38 +20,9 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
   const dateStr  = now.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const typeLabel = { dine: 'Dine-In', takeaway: 'Takeaway', delivery: 'Home Delivery' }[orderType] || orderType
 
-  const isKitchen = view === 'kitchen'
-
   return (
     <div className="rmodal-bg open" onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ position: 'relative' }}>
-        {/* View toggle */}
-        <div style={{
-          display: 'flex', gap: 4, marginBottom: 8, justifyContent: 'center',
-        }}>
-          <button
-            onClick={() => setView('customer')}
-            style={{
-              padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              border: '1px solid var(--border)', cursor: 'pointer',
-              background: !isKitchen ? 'var(--accent)' : '#fff',
-              color: !isKitchen ? '#fff' : 'var(--text)',
-            }}
-          >
-            🧾 Customer Bill
-          </button>
-          <button
-            onClick={() => setView('kitchen')}
-            style={{
-              padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              border: '1px solid var(--border)', cursor: 'pointer',
-              background: isKitchen ? '#e85d04' : '#fff',
-              color: isKitchen ? '#fff' : 'var(--text)',
-            }}
-          >
-            👨‍🍳 Kitchen Print
-          </button>
-        </div>
 
         {/* CUSTOMER RECEIPT */}
         {!isKitchen && (
@@ -196,7 +165,9 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
               👨‍🍳 Print Kitchen Order
             </button>
           )}
-          <button className="rbclose" onClick={onClose}>Close</button>
+          <button className="rbclose" onClick={onClose}>
+            {isKitchen ? 'Done' : 'Next →'}
+          </button>
         </div>
       </div>
     </div>

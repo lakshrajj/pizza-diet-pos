@@ -27,6 +27,14 @@ export default function Billing({ settings, dayClosed }) {
   const [configItem, setConfigItem] = useState(null)
   const [receiptData, setReceiptData] = useState(null)
   const [clock, setClock] = useState('')
+  const [billableInvItems, setBillableInvItems] = useState([])
+
+  // Load billable inventory items once on mount
+  useEffect(() => {
+    window.api.getInventoryForEntry().then(all => {
+      setBillableInvItems((all || []).filter(i => i.is_billable))
+    }).catch(() => {})
+  }, [])
 
   // Clock
   useEffect(() => {
@@ -233,7 +241,8 @@ export default function Billing({ settings, dayClosed }) {
       window.api.printReceipt(text)
     }
 
-    setReceiptData(finalReceipt)
+    // Show customer receipt first; after it closes, kitchen receipt auto-opens
+    setReceiptData({ ...finalReceipt, _type: 'customer', _autoNext: true })
     clearOrder()
     toast(`Bill ${res.orderNumber} created! ✓`)
   }
@@ -269,7 +278,17 @@ export default function Billing({ settings, dayClosed }) {
 
   const handleClear = () => { clearOrder(); toast('Order cleared') }
 
-  // ── PRINT BILL (preview before billing) ───────────────────────────────────
+  // ── RECEIPT CLOSE — handles sequential auto-popup ─────────────────────────
+  const handleReceiptClose = () => {
+    if (receiptData?._autoNext && receiptData?._type === 'customer') {
+      // Customer receipt closed/printed → auto-open kitchen receipt
+      setReceiptData({ ...receiptData, _type: 'kitchen', _autoNext: false })
+    } else {
+      setReceiptData(null)
+    }
+  }
+
+  // ── PRINT BILL (preview before billing — customer bill only) ──────────────
   const handlePrintBill = () => {
     if (items.length === 0) { toast('No items to print'); return }
     setReceiptData({
@@ -277,6 +296,7 @@ export default function Billing({ settings, dayClosed }) {
       orderType, customerName, customerPhone, customerAddress,
       items, subtotal: getSubtotal(), discount: getTotalDiscount(),
       gst: getTotalGST(), grandTotal: getGrandTotal(), settings,
+      _type: 'customer',
     })
   }
 
@@ -288,12 +308,12 @@ export default function Billing({ settings, dayClosed }) {
       orderType, customerName, customerPhone, customerAddress,
       items, subtotal: getSubtotal(), discount: getTotalDiscount(),
       gst: getTotalGST(), grandTotal: getGrandTotal(), settings,
-      _openKitchen: true,
+      _type: 'kitchen',
     })
   }
 
   const handleReprint = () => {
-    if (lastBilledOrder) setReceiptData(lastBilledOrder)
+    if (lastBilledOrder) setReceiptData({ ...lastBilledOrder, _type: 'customer' })
     else toast('No previous bill to reprint')
   }
 
@@ -352,7 +372,7 @@ export default function Billing({ settings, dayClosed }) {
         </div>
 
         <OrderTable onItemSelect={handleItemSelect} />
-        <QuickTiles onItemSelect={handleItemSelect} />
+        <QuickTiles onItemSelect={handleItemSelect} billableItems={billableInvItems} />
       </div>
 
       {/* RIGHT PANEL */}
@@ -379,7 +399,7 @@ export default function Billing({ settings, dayClosed }) {
       {receiptData && (
         <ReceiptModal
           receiptData={receiptData}
-          onClose={() => setReceiptData(null)}
+          onClose={handleReceiptClose}
           onPrint={handlePrintCustomer}
           onPrintKitchen={handlePrintKitchen}
         />

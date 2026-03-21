@@ -312,8 +312,12 @@ function createSchema() {
 }
 
 function runMigrations() {
-  // Add linked_menu_item_id to inventory_items (v1.1)
+  // v1.1 – kept for existing DBs that already have this column; no-op on fresh ones
   try { sqlJsDb.run('ALTER TABLE inventory_items ADD COLUMN linked_menu_item_id INTEGER') } catch (_) {}
+  // v1.2 – billable inventory items (can be billed directly to customer)
+  try { sqlJsDb.run('ALTER TABLE inventory_items ADD COLUMN is_billable INTEGER DEFAULT 0') } catch (_) {}
+  // v1.2 – price for billable items
+  try { sqlJsDb.run('ALTER TABLE inventory_items ADD COLUMN sale_price REAL DEFAULT 0') } catch (_) {}
 }
 
 function seedDefaults() {
@@ -734,10 +738,11 @@ ipcMain.handle('inventory:getLowStock', () => {
 ipcMain.handle('inventory:addItem', (_, data) => {
   try {
     const r = db.prepare(`
-      INSERT INTO inventory_items (name, category_id, subcategory, base_unit, low_stock_threshold, current_stock, supplier_name, notes, active, linked_menu_item_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO inventory_items (name, category_id, subcategory, base_unit, low_stock_threshold, current_stock, supplier_name, notes, active, is_billable, sale_price)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(data.name, data.category_id, data.subcategory || '', data.base_unit, data.low_stock_threshold || 0,
-      data.current_stock || 0, data.supplier_name || '', data.notes || '', 1, data.linked_menu_item_id || null)
+      data.current_stock || 0, data.supplier_name || '', data.notes || '', 1,
+      data.is_billable ? 1 : 0, data.sale_price || 0)
 
     const itemId = r.lastInsertRowid
 
@@ -763,9 +768,10 @@ ipcMain.handle('inventory:updateItem', (_, id, data) => {
   try {
     db.prepare(`
       UPDATE inventory_items SET name=?, category_id=?, subcategory=?, base_unit=?, low_stock_threshold=?,
-      supplier_name=?, notes=?, active=?, linked_menu_item_id=?, updated_at=datetime('now') WHERE id=?
+      supplier_name=?, notes=?, active=?, is_billable=?, sale_price=?, updated_at=datetime('now') WHERE id=?
     `).run(data.name, data.category_id, data.subcategory || '', data.base_unit, data.low_stock_threshold || 0,
-      data.supplier_name || '', data.notes || '', data.active ? 1 : 0, data.linked_menu_item_id || null, id)
+      data.supplier_name || '', data.notes || '', data.active ? 1 : 0,
+      data.is_billable ? 1 : 0, data.sale_price || 0, id)
 
     db.prepare('DELETE FROM inventory_pack_sizes WHERE inventory_item_id = ?').run(id)
     if (data.pack_sizes && data.pack_sizes.length) {
@@ -1087,10 +1093,9 @@ ipcMain.handle('customer:getByPhone', (_, phone) => {
 // ─── INVENTORY ENTRY IPC ─────────────────────────────────────────────────────
 ipcMain.handle('inventory:getAllForEntry', () => {
   return db.prepare(`
-    SELECT i.*, c.name as category_name, m.name as linked_item_name
+    SELECT i.*, c.name as category_name
     FROM inventory_items i
     LEFT JOIN inventory_categories c ON i.category_id = c.id
-    LEFT JOIN menu_items m ON i.linked_menu_item_id = m.id
     WHERE i.active = 1 ORDER BY i.name
   `).all()
 })

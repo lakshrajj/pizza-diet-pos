@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useInventoryStore } from '../store/inventoryStore'
-import { useMenuStore } from '../store/menuStore'
 import { useToast } from '../components/Toast'
 import StockMovementModal from '../components/StockMovementModal'
 import PackSizeBuilder from '../components/PackSizeBuilder'
@@ -8,7 +7,7 @@ import PackSizeBuilder from '../components/PackSizeBuilder'
 const UNITS = ['grams', 'ml', 'pcs', 'kg', 'litre', 'packets', 'boxes']
 const STEPS = ['Basic Info', 'Pack Sizes', 'Opening Stock']
 
-function InventoryForm({ item, categories, menuItems, onSave, onClose }) {
+function InventoryForm({ item, categories, onSave, onClose }) {
   const toast = useToast()
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
@@ -23,7 +22,8 @@ function InventoryForm({ item, categories, menuItems, onSave, onClose }) {
     has_packs: false,
     pack_sizes: item?.pack_sizes || [],
     current_stock: item?.current_stock || '',
-    linked_menu_item_id: item?.linked_menu_item_id || '',
+    is_billable: item?.is_billable ? true : false,
+    sale_price: item?.sale_price || '',
   })
 
   const set = (field, val) => setData(d => ({ ...d, [field]: val }))
@@ -37,7 +37,8 @@ function InventoryForm({ item, categories, menuItems, onSave, onClose }) {
       category_id: parseInt(data.category_id) || null,
       low_stock_threshold: parseFloat(data.low_stock_threshold) || 0,
       current_stock: parseFloat(data.current_stock) || 0,
-      linked_menu_item_id: data.linked_menu_item_id ? parseInt(data.linked_menu_item_id) : null,
+      is_billable: data.is_billable ? 1 : 0,
+      sale_price: parseFloat(data.sale_price) || 0,
       pack_sizes: data.pack_sizes.map(p => ({
         pack_name: p.pack_name,
         units_in_pack: parseFloat(p.units_in_pack) || 0,
@@ -100,14 +101,35 @@ function InventoryForm({ item, categories, menuItems, onSave, onClose }) {
                 <label className="form-label">Supplier Name</label>
                 <input className="form-input" value={data.supplier_name} onChange={e => set('supplier_name', e.target.value)} placeholder="e.g. ABC Wholesalers" />
               </div>
-              {/* Link to menu item */}
+              {/* Billable item toggle */}
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label className="form-label">🍕 Link to Menu Item <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional — for reference)</span></label>
-                <select className="form-input form-select" value={data.linked_menu_item_id} onChange={e => set('linked_menu_item_id', e.target.value)}>
-                  <option value="">Not linked</option>
-                  {menuItems.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
+                <div className="toggle-wrap">
+                  <label className="toggle">
+                    <input type="checkbox" checked={data.is_billable} onChange={e => set('is_billable', e.target.checked)} />
+                    <span className="slider" />
+                  </label>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    🧾 Billable Item
+                    <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 6, fontSize: 12 }}>
+                      (can be billed directly to customers)
+                    </span>
+                  </span>
+                </div>
               </div>
+              {data.is_billable && (
+                <div className="form-group">
+                  <label className="form-label">Sale Price (₹) *</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={data.sale_price}
+                    onChange={e => set('sale_price', e.target.value)}
+                    placeholder="e.g. 50"
+                  />
+                </div>
+              )}
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Notes</label>
                 <input className="form-input" value={data.notes} onChange={e => set('notes', e.target.value)} placeholder="Any additional notes" />
@@ -315,7 +337,6 @@ function TransactionsView() {
 export default function Inventory() {
   const toast = useToast()
   const { items, categories, loadAll, reload, getStockStatus } = useInventoryStore()
-  const { items: menuItems, loadAll: loadMenu } = useMenuStore()
 
   const [tab, setTab] = useState('items')
   const [showForm, setShowForm] = useState(false)
@@ -327,7 +348,7 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([loadAll(), loadMenu()]).then(() => setLoading(false))
+    loadAll().then(() => setLoading(false))
   }, [])
 
   const deleteItem = async (id) => {
@@ -411,7 +432,7 @@ export default function Inventory() {
                   <thead>
                     <tr>
                       <th>Name</th>
-                      <th>Linked Menu Item</th>
+                      <th>Billable</th>
                       <th>Category</th>
                       <th>Unit</th>
                       <th>Current Stock</th>
@@ -429,11 +450,15 @@ export default function Inventory() {
                       </tr>
                     ) : filtered.map(item => {
                       const status = getStockStatus(item)
-                      const linkedMenu = menuItems.find(m => m.id === item.linked_menu_item_id)
                       return (
                         <tr key={item.id} className={rowClass[status]}>
                           <td style={{ fontWeight: 600 }}>{item.name}</td>
-                          <td style={{ fontSize: 12, color: 'var(--accent)' }}>{linkedMenu ? `🍕 ${linkedMenu.name}` : '—'}</td>
+                          <td>
+                            {item.is_billable
+                              ? <span style={{ background: 'var(--accent-lt)', color: 'var(--accent)', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>🧾 Billable {item.sale_price > 0 ? `₹${item.sale_price}` : ''}</span>
+                              : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                            }
+                          </td>
                           <td>{item.category_name || '—'}</td>
                           <td style={{ color: 'var(--muted)', fontSize: 12 }}>{item.base_unit}</td>
                           <td>
@@ -468,7 +493,6 @@ export default function Inventory() {
         <InventoryForm
           item={editItem}
           categories={categories}
-          menuItems={menuItems}
           onSave={() => { setShowForm(false); setEditItem(null); reload() }}
           onClose={() => { setShowForm(false); setEditItem(null) }}
         />
