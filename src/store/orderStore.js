@@ -58,6 +58,12 @@ export const useOrderStore = create((set, get) => ({
     })
   },
 
+  updateItem: (rowKey, changes) => {
+    set({
+      items: get().items.map(i => i.rowKey === rowKey ? { ...i, ...changes } : i)
+    })
+  },
+
   clearOrder: () => {
     billCounter++
     set({

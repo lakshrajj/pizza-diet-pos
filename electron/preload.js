@@ -81,6 +81,13 @@ contextBridge.exposeInMainWorld('api', {
   updateUser: (id, data) => ipcRenderer.invoke('users:update', id, data),
   deleteUser: (id) => ipcRenderer.invoke('users:delete', id),
 
+  // Quick Add config
+  getQuickAddConfig: () => ipcRenderer.invoke('quickAdd:getConfig'),
+  saveQuickAddConfig: (ids) => ipcRenderer.invoke('quickAdd:saveConfig', ids),
+
+  // Billable inventory for billing
+  getBillableInventory: () => ipcRenderer.invoke('inventory:getBillable'),
+
   // Print
   printReceipt: (text) => ipcRenderer.invoke('print:receipt', text),
 })

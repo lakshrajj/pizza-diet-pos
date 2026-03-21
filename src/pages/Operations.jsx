@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { useOrderStore } from '../store/orderStore'
+import { useMenuStore } from '../store/menuStore'
 import { useToast } from '../components/Toast'
 import ReceiptModal from '../components/ReceiptModal'
 
@@ -16,6 +17,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
   const toast = useToast()
   const user = useAuthStore(s => s.user)
   const { loadHeldOrder, clearOrder } = useOrderStore()
+  const { items: menuItems, loadAll: loadMenu } = useMenuStore()
 
   const [activeTab, setActiveTab] = useState('dashboard')
   const [report, setReport] = useState(null)
@@ -29,9 +31,22 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
   const [showReceipt, setShowReceipt] = useState(null)
   const [dayCloseData, setDayCloseData] = useState(null)
 
+  // Quick Add config state
+  const [qaFeatured, setQaFeatured]       = useState([])   // ['menu_15', 'inv_5', …]
+  const [billableItems, setBillableItems] = useState([])
+  const [qaSearch, setQaSearch]           = useState('')
+  const [qaSaving, setQaSaving]           = useState(false)
+
   useEffect(() => { loadReport() }, [])
   useEffect(() => { if (activeTab === 'held') loadHeld() }, [activeTab])
   useEffect(() => { loadDayClose() }, [])
+  useEffect(() => {
+    if (activeTab === 'quickadd') {
+      loadMenu()
+      window.api.getBillableInventory().then(b => setBillableItems(b || []))
+      window.api.getQuickAddConfig().then(ids => setQaFeatured(ids || []))
+    }
+  }, [activeTab])
 
   const loadReport = async () => {
     setLoading(true)
@@ -126,6 +141,19 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
     })
   }
 
+  const toggleQaItem = (id) => {
+    setQaFeatured(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const saveQaConfig = async () => {
+    setQaSaving(true)
+    await window.api.saveQuickAddConfig(qaFeatured)
+    setQaSaving(false)
+    toast('Quick Add layout saved ✓')
+  }
+
   const dayClosed = settings?.day_closed === 'true'
 
   return (
@@ -148,9 +176,9 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
 
       <div className="admin-body">
         <div className="tab-bar">
-          {['dashboard', 'orders', 'held', 'reprint'].map(tab => (
+          {['dashboard', 'orders', 'held', 'reprint', 'quickadd'].map(tab => (
             <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-              {{ dashboard: '📊 Dashboard', orders: '🧾 Orders', held: '⏸ Held Orders', reprint: '🖨 Reprint' }[tab]}
+              {{ dashboard: '📊 Dashboard', orders: '🧾 Orders', held: '⏸ Held Orders', reprint: '🖨 Reprint', quickadd: '⭐ Quick Add' }[tab]}
             </div>
           ))}
         </div>
@@ -369,17 +397,135 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
             </div>
           </div>
         )}
+
+        {/* QUICK ADD CONFIG */}
+        {activeTab === 'quickadd' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>⭐ Quick Add Featured Items</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  Checked items appear in the <b>⭐ Featured</b> tab on the billing Quick Add bar.
+                  All items remain searchable regardless.
+                </div>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={saveQaConfig}
+                disabled={qaSaving}
+                style={{ minWidth: 100 }}
+              >
+                {qaSaving ? 'Saving…' : '💾 Save'}
+              </button>
+            </div>
+
+            <div className="form-group" style={{ maxWidth: 340, marginBottom: 12 }}>
+              <input
+                className="form-input"
+                placeholder="Search items…"
+                value={qaSearch}
+                onChange={e => setQaSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Menu items section */}
+            {menuItems.filter(m => m.active && (!qaSearch || m.name.toLowerCase().includes(qaSearch.toLowerCase()))).length > 0 && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}>🍕 Menu Items</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                  {menuItems
+                    .filter(m => m.active && (!qaSearch || m.name.toLowerCase().includes(qaSearch.toLowerCase())))
+                    .map(m => {
+                      const fid = `menu_${m.id}`
+                      const checked = qaFeatured.includes(fid)
+                      return (
+                        <label
+                          key={m.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                            borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--accent-lt)' : 'var(--surface)',
+                            border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleQaItem(fid)}
+                            style={{ accentColor: 'var(--accent)', width: 15, height: 15, flexShrink: 0 }}
+                          />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {m.emoji ? `${m.emoji} ` : ''}{m.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                              ₹{m.has_variants && m.variants?.length ? m.variants[0].price : m.base_price}
+                              {m.has_variants ? ' · variants' : ''}
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Billable inventory items section */}
+            {billableItems.filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase())).length > 0 && (
+              <div className="card">
+                <div className="card-title" style={{ marginBottom: 10 }}>🧾 Billable Stock Items</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                  {billableItems
+                    .filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase()))
+                    .map(b => {
+                      const fid = `inv_${b.id}`
+                      const checked = qaFeatured.includes(fid)
+                      return (
+                        <label
+                          key={b.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                            borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--accent-lt)' : 'var(--surface)',
+                            border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleQaItem(fid)}
+                            style={{ accentColor: 'var(--accent)', width: 15, height: 15, flexShrink: 0 }}
+                          />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              🧾 {b.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>₹{b.sale_price} · {b.current_stock} {b.base_unit}</div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+
+            {menuItems.length === 0 && billableItems.length === 0 && (
+              <div style={{ color: 'var(--muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>
+                No items found. Add menu items or billable inventory items first.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {showReceipt && (
         <ReceiptModal
-          receiptData={showReceipt}
+          receiptData={{ ...showReceipt, _type: 'customer' }}
           onClose={() => setShowReceipt(null)}
           onPrint={() => {
             const text = `${showReceipt.orderNumber}\n---\n`
             window.api.printReceipt(text)
             toast('Sent to printer')
           }}
+          onPrintKitchen={() => {}}
         />
       )}
     </div>

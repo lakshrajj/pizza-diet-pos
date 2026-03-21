@@ -854,8 +854,10 @@ ipcMain.handle('order:create', (_, data) => {
         JSON.stringify(item.addons || []), item.special_note || '', item.line_total)
     })
 
-    // Auto deduct inventory
+    // Auto deduct ingredients for menu items
     deductInventory(d.items, orderNumber)
+    // Deduct stock for billable inventory items sold directly
+    deductBillableInventory(d.items, orderNumber)
 
     return { orderId, orderNumber }
   })
@@ -867,6 +869,20 @@ ipcMain.handle('order:create', (_, data) => {
     return { success: false, error: e.message }
   }
 })
+
+function deductBillableInventory(items, orderNumber) {
+  items.forEach(item => {
+    const invId = item.inventory_item_id
+    if (!invId) return
+    const curr = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(invId)
+    if (!curr) return
+    const newStock = Math.max(0, curr.current_stock - item.qty)
+    db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = datetime('now') WHERE id = ?").run(newStock, invId)
+    db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id) VALUES (?, ?, ?, ?, ?)').run(
+      invId, 'sale', item.qty, `Sold: ${item.item_name}`, orderNumber
+    )
+  })
+}
 
 function deductInventory(items, orderNumber) {
   const ingStmt = db.prepare('SELECT * FROM ingredients WHERE menu_item_id = ?')
@@ -1131,6 +1147,25 @@ ipcMain.handle('inventory:getTransactions', (_, dateFrom, dateTo) => {
     WHERE DATE(sm.created_at) BETWEEN ? AND ?
     ORDER BY sm.created_at DESC LIMIT 500
   `).all(from, to)
+})
+
+// ─── QUICK ADD CONFIG IPC ────────────────────────────────────────────────────
+ipcMain.handle('quickAdd:getConfig', () => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('quick_add_featured')
+  try { return JSON.parse(row?.value || '[]') } catch { return [] }
+})
+
+ipcMain.handle('quickAdd:saveConfig', (_, ids) => {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('quick_add_featured', JSON.stringify(ids || []))
+  return { success: true }
+})
+
+// ─── BILLABLE INVENTORY IPC ──────────────────────────────────────────────────
+ipcMain.handle('inventory:getBillable', () => {
+  return db.prepare(`
+    SELECT id, name, sale_price, base_unit, current_stock
+    FROM inventory_items WHERE is_billable = 1 AND active = 1 ORDER BY name
+  `).all()
 })
 
 // ─── PRINT IPC ───────────────────────────────────────────────────────────────

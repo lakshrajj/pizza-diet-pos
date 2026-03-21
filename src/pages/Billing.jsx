@@ -31,8 +31,8 @@ export default function Billing({ settings, dayClosed }) {
 
   // Load billable inventory items once on mount
   useEffect(() => {
-    window.api.getInventoryForEntry().then(all => {
-      setBillableInvItems((all || []).filter(i => i.is_billable))
+    window.api.getBillableInventory().then(all => {
+      setBillableInvItems(all || [])
     }).catch(() => {})
   }, [])
 
@@ -197,19 +197,24 @@ export default function Billing({ settings, dayClosed }) {
       total_gst: gst,
       grand_total: grandTotal,
       created_by: user?.id,
-      items: items.map(i => ({
-        menu_item_id: i.menuItemId,
-        item_name: i.name + (i.variantName ? ` (${i.variantName})` : ''),
-        variant_name: i.variantName || '',
-        variant_desc: i.variantDesc || '',
-        qty: i.qty,
-        unit_price: i.unitPrice,
-        discount_pct: i.discountPct || 0,
-        gst_pct: i.gstPct || 0,
-        addons: i.addons || [],
-        special_note: i.specialNote || '',
-        line_total: i.unitPrice * i.qty * (1 - (i.discountPct || 0) / 100),
-      })),
+      items: items.map(i => {
+        const isInv = String(i.menuItemId).startsWith('inv_')
+        const inventoryId = isInv ? parseInt(String(i.menuItemId).replace('inv_', '')) : null
+        return {
+          menu_item_id: isInv ? null : (parseInt(i.menuItemId) || null),
+          inventory_item_id: inventoryId,
+          item_name: i.name + (i.variantName ? ` (${i.variantName})` : ''),
+          variant_name: i.variantName || '',
+          variant_desc: i.variantDesc || '',
+          qty: i.qty,
+          unit_price: i.unitPrice,
+          discount_pct: i.discountPct || 0,
+          gst_pct: i.gstPct || 0,
+          addons: i.addons || [],
+          special_note: i.specialNote || '',
+          line_total: i.unitPrice * i.qty * (1 - (i.discountPct || 0) / 100),
+        }
+      }),
     }
 
     const res = await window.api.createOrder(orderData)
@@ -371,7 +376,7 @@ export default function Billing({ settings, dayClosed }) {
           <span className="otype-info">{clock}</span>
         </div>
 
-        <OrderTable onItemSelect={handleItemSelect} />
+        <OrderTable onItemSelect={handleItemSelect} billableItems={billableInvItems} />
         <QuickTiles onItemSelect={handleItemSelect} billableItems={billableInvItems} />
       </div>
 
