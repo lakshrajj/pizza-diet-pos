@@ -49,6 +49,14 @@ contextBridge.exposeInMainWorld('api', {
   adjustStock: (data) => ipcRenderer.invoke('inventory:adjustStock', data),
   getStockMovements: (itemId) => ipcRenderer.invoke('inventory:getMovements', itemId),
 
+  // Inventory Entry (billing-style)
+  getInventoryForEntry: () => ipcRenderer.invoke('inventory:getAllForEntry'),
+  batchInventoryEntry: (entries, staffId) => ipcRenderer.invoke('inventory:batchEntry', entries, staffId),
+  getInventoryTransactions: (from, to) => ipcRenderer.invoke('inventory:getTransactions', from, to),
+
+  // Customer lookup
+  getCustomerByPhone: (phone) => ipcRenderer.invoke('customer:getByPhone', phone),
+
   // Orders
   createOrder: (data) => ipcRenderer.invoke('order:create', data),
   holdOrder: (data) => ipcRenderer.invoke('order:hold', data),

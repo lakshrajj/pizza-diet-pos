@@ -8,18 +8,20 @@ import Login from './pages/Login'
 import Billing from './pages/Billing'
 import MenuManager from './pages/MenuManager'
 import Inventory from './pages/Inventory'
+import InventoryEntry from './pages/InventoryEntry'
 import Operations from './pages/Operations'
 import CategoryManager from './pages/CategoryManager'
 import Settings from './pages/Settings'
 
 // Pages visible in topbar nav
 const NAV = [
-  { key: 'billing', label: 'Billing', icon: '🧾', staffAllowed: true },
-  { key: 'menu', label: 'Menu Manager', icon: '🍕', staffAllowed: false },
-  { key: 'inventory', label: 'Inventory', icon: '📦', staffAllowed: false },
-  { key: 'operations', label: 'Operations', icon: '📊', staffAllowed: true },
-  { key: 'categories', label: 'Categories', icon: '⚙️', staffAllowed: false },
-  { key: 'settings', label: 'Settings', icon: '🔧', staffAllowed: false },
+  { key: 'billing',       label: 'Billing',        icon: '🧾', staffAllowed: true  },
+  { key: 'inv-entry',     label: 'Stock Entry',     icon: '📥', staffAllowed: true  },
+  { key: 'menu',          label: 'Menu Manager',    icon: '🍕', staffAllowed: false },
+  { key: 'inventory',     label: 'Inventory',       icon: '📦', staffAllowed: false },
+  { key: 'operations',    label: 'Operations',      icon: '📊', staffAllowed: true  },
+  { key: 'categories',    label: 'Categories',      icon: '⚙️', staffAllowed: false },
+  { key: 'settings',      label: 'Settings',        icon: '🔧', staffAllowed: false },
 ]
 
 function SetupBanner() {
@@ -164,6 +166,14 @@ function AppContent() {
                     settings={settings}
                     dayClosed={dayClosed}
                   />
+                </div>
+              </div>
+            )}
+
+            {activePage === 'inv-entry' && (
+              <div className="page active" id="page-inv-entry" style={{ flexDirection: 'column', position: 'relative', background: 'var(--bg)' }}>
+                <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+                  <InventoryEntry />
                 </div>
               </div>
             )}

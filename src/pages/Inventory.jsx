@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useInventoryStore } from '../store/inventoryStore'
+import { useMenuStore } from '../store/menuStore'
 import { useToast } from '../components/Toast'
 import StockMovementModal from '../components/StockMovementModal'
 import PackSizeBuilder from '../components/PackSizeBuilder'
@@ -7,7 +8,7 @@ import PackSizeBuilder from '../components/PackSizeBuilder'
 const UNITS = ['grams', 'ml', 'pcs', 'kg', 'litre', 'packets', 'boxes']
 const STEPS = ['Basic Info', 'Pack Sizes', 'Opening Stock']
 
-function InventoryForm({ item, categories, onSave, onClose }) {
+function InventoryForm({ item, categories, menuItems, onSave, onClose }) {
   const toast = useToast()
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
@@ -22,20 +23,21 @@ function InventoryForm({ item, categories, onSave, onClose }) {
     has_packs: false,
     pack_sizes: item?.pack_sizes || [],
     current_stock: item?.current_stock || '',
+    linked_menu_item_id: item?.linked_menu_item_id || '',
   })
 
   const set = (field, val) => setData(d => ({ ...d, [field]: val }))
 
   const handleSave = async () => {
     if (!data.name.trim()) { toast('Item name required'); return }
-    if (!data.category_id) { toast('Category required'); return }
     if (!data.base_unit) { toast('Unit required'); return }
 
     const payload = {
       ...data,
-      category_id: parseInt(data.category_id),
+      category_id: parseInt(data.category_id) || null,
       low_stock_threshold: parseFloat(data.low_stock_threshold) || 0,
       current_stock: parseFloat(data.current_stock) || 0,
+      linked_menu_item_id: data.linked_menu_item_id ? parseInt(data.linked_menu_item_id) : null,
       pack_sizes: data.pack_sizes.map(p => ({
         pack_name: p.pack_name,
         units_in_pack: parseFloat(p.units_in_pack) || 0,
@@ -78,9 +80,9 @@ function InventoryForm({ item, categories, onSave, onClose }) {
                 <input className="form-input" value={data.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Mozzarella Cheese" />
               </div>
               <div className="form-group">
-                <label className="form-label">Category *</label>
+                <label className="form-label">Category</label>
                 <select className="form-input form-select" value={data.category_id} onChange={e => set('category_id', e.target.value)}>
-                  <option value="">Select category</option>
+                  <option value="">No category</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
@@ -97,6 +99,14 @@ function InventoryForm({ item, categories, onSave, onClose }) {
               <div className="form-group">
                 <label className="form-label">Supplier Name</label>
                 <input className="form-input" value={data.supplier_name} onChange={e => set('supplier_name', e.target.value)} placeholder="e.g. ABC Wholesalers" />
+              </div>
+              {/* Link to menu item */}
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">🍕 Link to Menu Item <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional — for reference)</span></label>
+                <select className="form-input form-select" value={data.linked_menu_item_id} onChange={e => set('linked_menu_item_id', e.target.value)}>
+                  <option value="">Not linked</option>
+                  {menuItems.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
               </div>
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Notes</label>
@@ -220,9 +230,94 @@ function MovementsModal({ item, onClose }) {
   )
 }
 
+// ── Transactions Tab ─────────────────────────────────────────────────────────
+function TransactionsView() {
+  const today = new Date().toISOString().slice(0, 10)
+  const [from, setFrom] = useState(today)
+  const [to, setTo]     = useState(today)
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  const load = async () => {
+    setLoading(true)
+    const data = await window.api.getInventoryTransactions(from, to)
+    setRows(data)
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  const typeLabel = {
+    purchase: '📦 Purchase', wastage: '🗑 Wastage', sale: '🧾 Auto-Sale',
+    manual_add: '➕ Manual Add', manual_remove: '➖ Manual Remove',
+    opening: '🏁 Opening', manual_set: '⚙ Set',
+  }
+  const isOut = t => ['sale','wastage','manual_remove'].includes(t)
+
+  return (
+    <div>
+      {/* Filter bar */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>From</label>
+        <input type="date" className="form-input" style={{ width: 150 }} value={from} onChange={e => setFrom(e.target.value)} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>To</label>
+        <input type="date" className="form-input" style={{ width: 150 }} value={to} onChange={e => setTo(e.target.value)} />
+        <button className="btn btn-primary" onClick={load} style={{ minWidth: 80 }}>Filter</button>
+        <button className="btn btn-outline" onClick={() => { const t = new Date().toISOString().slice(0,10); setFrom(t); setTo(t); }} style={{ fontSize: 12 }}>Today</button>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{rows.length} entries</span>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>Loading…</div>
+      ) : (
+        <div className="card" style={{ padding: 0 }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Item</th>
+                <th>Type</th>
+                <th>Qty</th>
+                <th>Reason</th>
+                <th>Reference</th>
+                <th>Staff</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
+                    No transactions for this period
+                  </td>
+                </tr>
+              ) : rows.map(r => (
+                <tr key={r.id}>
+                  <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleString('en-IN')}</td>
+                  <td style={{ fontWeight: 600 }}>{r.item_name}</td>
+                  <td>{typeLabel[r.movement_type] || r.movement_type}</td>
+                  <td style={{ fontWeight: 700, color: isOut(r.movement_type) ? 'var(--red)' : 'var(--green)' }}>
+                    {isOut(r.movement_type) ? '−' : '+'}{r.quantity} {r.base_unit}
+                  </td>
+                  <td style={{ fontSize: 12 }}>{r.reason || '—'}</td>
+                  <td style={{ fontSize: 12 }}>{r.reference_id || '—'}</td>
+                  <td style={{ fontSize: 12 }}>{r.staff_name || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function Inventory() {
   const toast = useToast()
   const { items, categories, loadAll, reload, getStockStatus } = useInventoryStore()
+  const { items: menuItems, loadAll: loadMenu } = useMenuStore()
+
+  const [tab, setTab] = useState('items')
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState(null)
   const [adjustItem, setAdjustItem] = useState(null)
@@ -232,7 +327,7 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadAll().then(() => setLoading(false))
+    Promise.all([loadAll(), loadMenu()]).then(() => setLoading(false))
   }, [])
 
   const deleteItem = async (id) => {
@@ -255,100 +350,117 @@ export default function Inventory() {
     <div className="admin-page">
       <div className="admin-header">
         <div className="admin-title">📦 INVENTORY MANAGER</div>
-        <div style={{ marginLeft: 'auto' }}>
-          <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowForm(true) }}>
-            + Add Item
-          </button>
+        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+          {tab === 'items' && (
+            <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowForm(true) }}>
+              + Add Item
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="tab-bar" style={{ padding: '0 20px' }}>
+        {[
+          { key: 'items', label: '📦 Stock Items' },
+          { key: 'transactions', label: '📋 Transactions' },
+        ].map(t => (
+          <button key={t.key} className={`tab-btn ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div className="admin-body">
-        <div className="search-bar">
-          <input
-            className="search-input"
-            placeholder="Search inventory…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <select
-            className="form-input form-select"
-            style={{ width: 200 }}
-            value={filterCat}
-            onChange={e => setFilterCat(e.target.value)}
-          >
-            <option value="">All Categories</option>
-            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
+        {tab === 'transactions' && <TransactionsView />}
 
-        <div style={{ display: 'flex', gap: 10, marginBottom: 12, fontSize: 12 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, background: 'rgba(45,122,58,0.3)', borderRadius: 2, display: 'inline-block' }} />
-            Good stock
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, background: 'rgba(196,125,16,0.3)', borderRadius: 2, display: 'inline-block' }} />
-            Near threshold
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, background: 'rgba(192,57,43,0.3)', borderRadius: 2, display: 'inline-block' }} />
-            Low stock
-          </span>
-        </div>
+        {tab === 'items' && (
+          <>
+            <div className="search-bar">
+              <input
+                className="search-input"
+                placeholder="Search inventory…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              <select
+                className="form-input form-select"
+                style={{ width: 200 }}
+                value={filterCat}
+                onChange={e => setFilterCat(e.target.value)}
+              >
+                <option value="">All Categories</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>Loading…</div>
-        ) : (
-          <div className="card" style={{ padding: 0 }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Unit</th>
-                  <th>Current Stock</th>
-                  <th>Threshold</th>
-                  <th>Supplier</th>
-                  <th className="tr">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
-                      {items.length === 0 ? 'No inventory items. Click "+ Add Item" to start.' : 'No results.'}
-                    </td>
-                  </tr>
-                ) : filtered.map(item => {
-                  const status = getStockStatus(item)
-                  return (
-                    <tr key={item.id} className={rowClass[status]}>
-                      <td style={{ fontWeight: 600 }}>{item.name}</td>
-                      <td>{item.category_name || '—'}</td>
-                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{item.base_unit}</td>
-                      <td>
-                        <span className={stockColor[status]}>
-                          {item.current_stock} {item.base_unit}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        {item.low_stock_threshold} {item.base_unit}
-                      </td>
-                      <td style={{ fontSize: 12 }}>{item.supplier_name || '—'}</td>
-                      <td className="tr">
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <button className="btn btn-primary btn-sm" onClick={() => setAdjustItem(item)}>Adjust</button>
-                          <button className="btn btn-outline btn-sm" onClick={() => setMovementsItem(item)}>Log</button>
-                          <button className="btn btn-outline btn-sm" onClick={() => { setEditItem(item); setShowForm(true) }}>Edit</button>
-                          <button className="btn btn-danger btn-sm" onClick={() => deleteItem(item.id)}>Del</button>
-                        </div>
-                      </td>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12, fontSize: 12 }}>
+              {[['rgba(45,122,58,0.3)', 'Good stock'], ['rgba(196,125,16,0.3)', 'Near threshold'], ['rgba(192,57,43,0.3)', 'Low stock']].map(([bg, lbl]) => (
+                <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 10, height: 10, background: bg, borderRadius: 2, display: 'inline-block' }} />
+                  {lbl}
+                </span>
+              ))}
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>Loading…</div>
+            ) : (
+              <div className="card" style={{ padding: 0 }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Linked Menu Item</th>
+                      <th>Category</th>
+                      <th>Unit</th>
+                      <th>Current Stock</th>
+                      <th>Threshold</th>
+                      <th>Supplier</th>
+                      <th className="tr">Actions</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
+                          {items.length === 0 ? 'No inventory items. Click "+ Add Item" to start.' : 'No results.'}
+                        </td>
+                      </tr>
+                    ) : filtered.map(item => {
+                      const status = getStockStatus(item)
+                      const linkedMenu = menuItems.find(m => m.id === item.linked_menu_item_id)
+                      return (
+                        <tr key={item.id} className={rowClass[status]}>
+                          <td style={{ fontWeight: 600 }}>{item.name}</td>
+                          <td style={{ fontSize: 12, color: 'var(--accent)' }}>{linkedMenu ? `🍕 ${linkedMenu.name}` : '—'}</td>
+                          <td>{item.category_name || '—'}</td>
+                          <td style={{ color: 'var(--muted)', fontSize: 12 }}>{item.base_unit}</td>
+                          <td>
+                            <span className={stockColor[status]}>
+                              {item.current_stock} {item.base_unit}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {item.low_stock_threshold} {item.base_unit}
+                          </td>
+                          <td style={{ fontSize: 12 }}>{item.supplier_name || '—'}</td>
+                          <td className="tr">
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button className="btn btn-primary btn-sm" onClick={() => setAdjustItem(item)}>Adjust</button>
+                              <button className="btn btn-outline btn-sm" onClick={() => setMovementsItem(item)}>Log</button>
+                              <button className="btn btn-outline btn-sm" onClick={() => { setEditItem(item); setShowForm(true) }}>Edit</button>
+                              <button className="btn btn-danger btn-sm" onClick={() => deleteItem(item.id)}>Del</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -356,6 +468,7 @@ export default function Inventory() {
         <InventoryForm
           item={editItem}
           categories={categories}
+          menuItems={menuItems}
           onSave={() => { setShowForm(false); setEditItem(null); reload() }}
           onClose={() => { setShowForm(false); setEditItem(null) }}
         />

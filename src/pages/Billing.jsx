@@ -39,18 +39,13 @@ export default function Billing({ settings, dayClosed }) {
     return () => clearInterval(id)
   }, [])
 
-  // Order type labels
   const typeLabel = { dine: 'DINE-IN', takeaway: 'TAKEAWAY', delivery: 'HOME DELIVERY' }
-
-  // Total items
   const totalItems = items.reduce((s, i) => s + i.qty, 0)
 
-  // Handle item selection from search or quick tiles
   const handleItemSelect = (menuItem) => {
     if (menuItem.has_variants && menuItem.variants?.length > 0) {
       setConfigItem(menuItem)
     } else {
-      // Direct add — no variants
       const rowKey = `${menuItem.id}__`
       addItem({
         rowKey,
@@ -73,8 +68,8 @@ export default function Billing({ settings, dayClosed }) {
     toast(`${itemData.name}${itemData.variantName ? ` (${itemData.variantName})` : ''} added ✓`)
   }
 
-  // Build receipt text for thermal printer
-  const buildReceiptText = (orderNumber, orderData) => {
+  // ── CUSTOMER RECEIPT ───────────────────────────────────────────────────────
+  const buildCustomerReceipt = (orderNumber, orderData) => {
     const storeName = settings?.store_name || 'Pizza Diet'
     const storeAddress = settings?.store_address || ''
     const storePhone = settings?.store_phone || ''
@@ -84,21 +79,19 @@ export default function Billing({ settings, dayClosed }) {
     const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
     const dateStr = now.toLocaleDateString('en-IN')
     const width = 32
-
-    const center = (s) => {
-      const pad = Math.max(0, Math.floor((width - s.length) / 2))
-      return ' '.repeat(pad) + s
-    }
+    const center = (s) => ' '.repeat(Math.max(0, Math.floor((width - s.length) / 2))) + s
 
     let text = '================================\n'
-    text += center(`🍕 ${storeName}`) + '\n'
+    text += center(`\u{1F355} ${storeName}`) + '\n'
     if (storeAddress) text += center(storeAddress) + '\n'
-    if (storePhone) text += center(`Ph: ${storePhone}`) + '\n'
-    if (storeGstin) text += center(`GSTIN: ${storeGstin}`) + '\n'
+    if (storePhone)   text += center(`Ph: ${storePhone}`) + '\n'
+    if (storeGstin)   text += center(`GSTIN: ${storeGstin}`) + '\n'
     text += '================================\n'
     text += `Bill: ${orderNumber}    ${timeStr}\n`
     text += `Date: ${dateStr}  ${typeLabel[orderType] || orderType}\n`
-    if (customerName) text += `Customer: ${customerName}${customerPhone ? ` | ${customerPhone}` : ''}\n`
+    if (customerName)  text += `Name: ${customerName}${customerPhone ? ` | ${customerPhone}` : ''}\n`
+    if (!customerName && customerPhone) text += `Phone: ${customerPhone}\n`
+    if (customerAddress && orderType === 'delivery') text += `Addr: ${customerAddress}\n`
     text += '================================\n'
     text += 'Item                        Amt\n'
     text += '--------------------------------\n'
@@ -106,33 +99,76 @@ export default function Billing({ settings, dayClosed }) {
     orderData.items.forEach(item => {
       const total = item.unitPrice * item.qty * (1 - (item.discountPct || 0) / 100)
       const label = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}`
-      text += `${label.slice(0, 24).padEnd(24)} ₹${total.toFixed(0)}\n`
+      text += `${label.slice(0, 24).padEnd(24)} \u20B9${total.toFixed(0)}\n`
       if (item.addons?.length) text += `  + ${item.addons.map(a => a.name).join(', ')}\n`
-      if (item.specialNote) text += `  * ${item.specialNote}\n`
+      if (item.specialNote)    text += `  * ${item.specialNote}\n`
     })
 
     text += '--------------------------------\n'
-    text += `${'Subtotal'.padEnd(24)} ₹${orderData.subtotal.toFixed(2)}\n`
-    if (orderData.discount > 0) text += `${'Discount'.padEnd(24)}-₹${orderData.discount.toFixed(2)}\n`
-    if (gstEnabled && orderData.gst > 0) text += `${'GST'.padEnd(24)} ₹${orderData.gst.toFixed(2)}\n`
+    text += `${'Subtotal'.padEnd(24)} \u20B9${orderData.subtotal.toFixed(2)}\n`
+    if (orderData.discount > 0) text += `${'Discount'.padEnd(24)}-\u20B9${orderData.discount.toFixed(2)}\n`
+    if (gstEnabled && orderData.gst > 0) {
+      text += `${'GST'.padEnd(24)} \u20B9${orderData.gst.toFixed(2)}\n`
+      if (storeGstin) text += `${'GSTIN: ' + storeGstin}\n`
+    }
     text += '================================\n'
-    text += `${'TOTAL'.padEnd(18)} ₹${orderData.grandTotal.toFixed(2)}\n`
+    text += `${'TOTAL'.padEnd(18)} \u20B9${orderData.grandTotal.toFixed(2)}\n`
     text += '================================\n'
     text += center('Thank you! Visit Again') + '\n'
-    text += center(`🍕 ${storeName}`) + '\n'
+    text += center(`\u{1F355} ${storeName}`) + '\n'
     text += '================================\n'
 
     return text
   }
 
-  // BILL action
+  // ── KITCHEN RECEIPT ────────────────────────────────────────────────────────
+  const buildKitchenReceipt = (orderNumber, orderData) => {
+    const storeName = settings?.store_name || 'Pizza Diet'
+    const now = new Date()
+    const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    const dateStr = now.toLocaleDateString('en-IN')
+    const width = 32
+    const center = (s) => ' '.repeat(Math.max(0, Math.floor((width - s.length) / 2))) + s
+
+    let text = '================================\n'
+    text += center('** KITCHEN ORDER **') + '\n'
+    text += center(`\u{1F355} ${storeName}`) + '\n'
+    text += '================================\n'
+    text += `Bill: ${orderNumber}    ${timeStr}\n`
+    text += `Date: ${dateStr}\n`
+    text += `Type: ${typeLabel[orderType] || orderType}\n`
+    if (customerName)  text += `Name: ${customerName}${customerPhone ? ` | ${customerPhone}` : ''}\n`
+    if (!customerName && customerPhone) text += `Phone: ${customerPhone}\n`
+    if (customerAddress && orderType === 'delivery') text += `Addr: ${customerAddress}\n`
+    text += '================================\n'
+
+    orderData.items.forEach(item => {
+      const label = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}`
+      text += `${item.qty}x  ${label}\n`
+      if (item.addons?.length) text += `    + ${item.addons.map(a => a.name).join(', ')}\n`
+      if (item.specialNote)    text += `    *** ${item.specialNote} ***\n`
+    })
+
+    text += '================================\n'
+    text += center('-- PREPARE IMMEDIATELY --') + '\n'
+    text += '================================\n'
+
+    return text
+  }
+
+  // ── BILL action ────────────────────────────────────────────────────────────
   const handleBill = async () => {
     if (dayClosed && user?.role !== 'admin') {
       toast('Day is closed. Ask admin to reopen.')
       return
     }
     if (items.length === 0) { toast('No items in order'); return }
-    if (!customerName.trim()) { toast('Customer name is required'); return }
+
+    // Name OR phone required
+    if (!customerName.trim() && !customerPhone.trim()) {
+      toast('Enter customer name or phone number')
+      return
+    }
     if (orderType === 'delivery') {
       if (!customerPhone.trim()) { toast('Phone required for delivery'); return }
       if (!customerAddress.trim()) { toast('Address required for delivery'); return }
@@ -179,6 +215,7 @@ export default function Billing({ settings, dayClosed }) {
       orderType,
       customerName,
       customerPhone,
+      customerAddress,
       items,
       subtotal,
       discount,
@@ -190,9 +227,9 @@ export default function Billing({ settings, dayClosed }) {
     setLastBilled(finalReceipt, res.orderNumber)
     setBillNumber(res.orderNumber)
 
-    // Auto print if enabled
+    // Auto print customer bill if enabled
     if (settings?.auto_print === 'true') {
-      const text = buildReceiptText(res.orderNumber, { ...orderData, items, discount, gst, grandTotal })
+      const text = buildCustomerReceipt(res.orderNumber, { items, subtotal, discount, gst, grandTotal })
       window.api.printReceipt(text)
     }
 
@@ -201,7 +238,7 @@ export default function Billing({ settings, dayClosed }) {
     toast(`Bill ${res.orderNumber} created! ✓`)
   }
 
-  // HOLD action
+  // ── HOLD ───────────────────────────────────────────────────────────────────
   const handleHold = async () => {
     if (items.length === 0) { toast('No items to hold'); return }
     const subtotal = getSubtotal()
@@ -214,78 +251,68 @@ export default function Billing({ settings, dayClosed }) {
       customer_name: customerName,
       customer_phone: customerPhone,
       customer_address: customerAddress,
-      subtotal,
-      total_discount: discount,
-      total_gst: gst,
-      grand_total: grandTotal,
+      subtotal, total_discount: discount, total_gst: gst, grand_total: grandTotal,
       created_by: user?.id,
       items: items.map(i => ({
         menu_item_id: i.menuItemId,
         item_name: i.name + (i.variantName ? ` (${i.variantName})` : ''),
-        variant_name: i.variantName || '',
-        variant_desc: i.variantDesc || '',
-        qty: i.qty,
-        unit_price: i.unitPrice,
-        discount_pct: i.discountPct || 0,
-        gst_pct: i.gstPct || 0,
-        addons: i.addons || [],
-        special_note: i.specialNote || '',
+        variant_name: i.variantName || '', variant_desc: i.variantDesc || '',
+        qty: i.qty, unit_price: i.unitPrice, discount_pct: i.discountPct || 0,
+        gst_pct: i.gstPct || 0, addons: i.addons || [], special_note: i.specialNote || '',
         line_total: i.unitPrice * i.qty * (1 - (i.discountPct || 0) / 100),
       })),
     })
 
-    if (res.success) {
-      clearOrder()
-      toast('Order held ✓')
-    } else {
-      toast('Error holding order')
-    }
+    if (res.success) { clearOrder(); toast('Order held ✓') }
+    else toast('Error holding order')
   }
 
-  const handleClear = () => {
-    clearOrder()
-    toast('Order cleared')
-  }
+  const handleClear = () => { clearOrder(); toast('Order cleared') }
 
+  // ── PRINT BILL (preview before billing) ───────────────────────────────────
   const handlePrintBill = () => {
     if (items.length === 0) { toast('No items to print'); return }
-    const subtotal = getSubtotal()
-    const discount = getTotalDiscount()
-    const gst = getTotalGST()
-    const grandTotal = getGrandTotal()
     setReceiptData({
       orderNumber: billNumber,
-      orderType,
-      customerName,
-      customerPhone,
-      items,
-      subtotal,
-      discount,
-      gst,
-      grandTotal,
-      settings,
+      orderType, customerName, customerPhone, customerAddress,
+      items, subtotal: getSubtotal(), discount: getTotalDiscount(),
+      gst: getTotalGST(), grandTotal: getGrandTotal(), settings,
+    })
+  }
+
+  // ── KITCHEN PRINT (preview only) ──────────────────────────────────────────
+  const handleKitchenPrint = () => {
+    if (items.length === 0) { toast('No items to print'); return }
+    setReceiptData({
+      orderNumber: billNumber,
+      orderType, customerName, customerPhone, customerAddress,
+      items, subtotal: getSubtotal(), discount: getTotalDiscount(),
+      gst: getTotalGST(), grandTotal: getGrandTotal(), settings,
+      _openKitchen: true,
     })
   }
 
   const handleReprint = () => {
-    if (lastBilledOrder) {
-      setReceiptData(lastBilledOrder)
-    } else {
-      toast('No previous bill to reprint')
-    }
+    if (lastBilledOrder) setReceiptData(lastBilledOrder)
+    else toast('No previous bill to reprint')
   }
 
-  const handlePrint = async () => {
+  // ── PRINT handlers called from ReceiptModal ───────────────────────────────
+  const handlePrintCustomer = async () => {
     if (!receiptData) return
-    const text = buildReceiptText(receiptData.orderNumber, {
-      items: receiptData.items,
-      subtotal: receiptData.subtotal,
-      discount: receiptData.discount,
-      gst: receiptData.gst,
-      grandTotal: receiptData.grandTotal,
+    const text = buildCustomerReceipt(receiptData.orderNumber, {
+      items: receiptData.items, subtotal: receiptData.subtotal,
+      discount: receiptData.discount, gst: receiptData.gst, grandTotal: receiptData.grandTotal,
     })
     await window.api.printReceipt(text)
-    toast('Sent to printer')
+    toast('Customer bill sent to printer')
+  }
+
+  const handlePrintKitchen = async () => {
+    if (!receiptData) return
+    const text = buildKitchenReceipt(receiptData.orderNumber, { items: receiptData.items })
+    await window.api.printReceipt(text)
+    toast('Kitchen order sent to printer')
   }
 
   if (!loaded) {
@@ -300,44 +327,31 @@ export default function Billing({ settings, dayClosed }) {
     <>
       {/* LEFT PANEL */}
       <div className="bleft">
-        {/* Header */}
         <div className="chk-header">
           <div>
             <div className="chk-title">NEW CHECK</div>
-            <div className="chk-sub">
-              {billNumber} · {typeLabel[orderType]}
-            </div>
+            <div className="chk-sub">{billNumber} · {typeLabel[orderType]}</div>
           </div>
           <div className="chk-badge">
             <div className="chk-badge-lbl">Total Items</div>
-            <div className="chk-badge-num">
-              {String(totalItems).padStart(2, '0')}
-            </div>
+            <div className="chk-badge-num">{String(totalItems).padStart(2, '0')}</div>
           </div>
         </div>
 
-        {/* Order type bar */}
         <div className="otype-bar">
           {[
-            { key: 'dine', label: 'Dine-In' },
-            { key: 'takeaway', label: 'Takeaway' },
-            { key: 'delivery', label: 'Delivery' },
+            { key: 'dine',     label: 'Dine-In'   },
+            { key: 'takeaway', label: 'Takeaway'  },
+            { key: 'delivery', label: 'Delivery'  },
           ].map(t => (
-            <button
-              key={t.key}
-              className={`otype ${orderType === t.key ? 'active' : ''}`}
-              onClick={() => setOrderType(t.key)}
-            >
+            <button key={t.key} className={`otype ${orderType === t.key ? 'active' : ''}`} onClick={() => setOrderType(t.key)}>
               {t.label}
             </button>
           ))}
           <span className="otype-info">{clock}</span>
         </div>
 
-        {/* Order table */}
         <OrderTable onItemSelect={handleItemSelect} />
-
-        {/* Quick tiles */}
         <QuickTiles onItemSelect={handleItemSelect} />
       </div>
 
@@ -349,6 +363,7 @@ export default function Billing({ settings, dayClosed }) {
         onClear={handleClear}
         onReprint={handleReprint}
         onPrintBill={handlePrintBill}
+        onKitchenPrint={handleKitchenPrint}
       />
 
       {/* Config Modal */}
@@ -365,7 +380,8 @@ export default function Billing({ settings, dayClosed }) {
         <ReceiptModal
           receiptData={receiptData}
           onClose={() => setReceiptData(null)}
-          onPrint={handlePrint}
+          onPrint={handlePrintCustomer}
+          onPrintKitchen={handlePrintKitchen}
         />
       )}
 
@@ -375,8 +391,7 @@ export default function Billing({ settings, dayClosed }) {
           position: 'absolute', bottom: 0, left: 0, right: 0,
           background: '#ffeaea', borderTop: '1px solid #f5c6c3',
           padding: '10px 24px', textAlign: 'center',
-          fontSize: 13, color: 'var(--red)', fontWeight: 600,
-          zIndex: 10,
+          fontSize: 13, color: 'var(--red)', fontWeight: 600, zIndex: 10,
         }}>
           ⚠️ Day is closed. Billing is locked. Admin can reopen from Operations.
         </div>

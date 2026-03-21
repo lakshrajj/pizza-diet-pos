@@ -129,6 +129,7 @@ async function initDB() {
   db.pragma('foreign_keys = ON')
 
   createSchema()
+  runMigrations()
   seedDefaults()
   saveDb()
 }
@@ -308,6 +309,11 @@ function createSchema() {
       value TEXT
     );
   `)
+}
+
+function runMigrations() {
+  // Add linked_menu_item_id to inventory_items (v1.1)
+  try { sqlJsDb.run('ALTER TABLE inventory_items ADD COLUMN linked_menu_item_id INTEGER') } catch (_) {}
 }
 
 function seedDefaults() {
@@ -728,10 +734,10 @@ ipcMain.handle('inventory:getLowStock', () => {
 ipcMain.handle('inventory:addItem', (_, data) => {
   try {
     const r = db.prepare(`
-      INSERT INTO inventory_items (name, category_id, subcategory, base_unit, low_stock_threshold, current_stock, supplier_name, notes, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO inventory_items (name, category_id, subcategory, base_unit, low_stock_threshold, current_stock, supplier_name, notes, active, linked_menu_item_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(data.name, data.category_id, data.subcategory || '', data.base_unit, data.low_stock_threshold || 0,
-      data.current_stock || 0, data.supplier_name || '', data.notes || '', 1)
+      data.current_stock || 0, data.supplier_name || '', data.notes || '', 1, data.linked_menu_item_id || null)
 
     const itemId = r.lastInsertRowid
 
@@ -757,9 +763,9 @@ ipcMain.handle('inventory:updateItem', (_, id, data) => {
   try {
     db.prepare(`
       UPDATE inventory_items SET name=?, category_id=?, subcategory=?, base_unit=?, low_stock_threshold=?,
-      supplier_name=?, notes=?, active=?, updated_at=datetime('now') WHERE id=?
+      supplier_name=?, notes=?, active=?, linked_menu_item_id=?, updated_at=datetime('now') WHERE id=?
     `).run(data.name, data.category_id, data.subcategory || '', data.base_unit, data.low_stock_threshold || 0,
-      data.supplier_name || '', data.notes || '', data.active ? 1 : 0, id)
+      data.supplier_name || '', data.notes || '', data.active ? 1 : 0, data.linked_menu_item_id || null, id)
 
     db.prepare('DELETE FROM inventory_pack_sizes WHERE inventory_item_id = ?').run(id)
     if (data.pack_sizes && data.pack_sizes.length) {
@@ -1054,6 +1060,72 @@ ipcMain.handle('users:update', (_, id, data) => {
 ipcMain.handle('users:delete', (_, id) => {
   db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(id)
   return { success: true }
+})
+
+// ─── CUSTOMER LOOKUP IPC ─────────────────────────────────────────────────────
+ipcMain.handle('customer:getByPhone', (_, phone) => {
+  const p = (phone || '').trim()
+  if (!p) return null
+  const recent = db.prepare(`
+    SELECT customer_name, customer_phone, customer_address
+    FROM orders WHERE customer_phone LIKE ? AND status = 'billed' AND customer_phone != ''
+    ORDER BY created_at DESC LIMIT 1
+  `).get(`%${p}%`)
+  if (!recent) return null
+  const addrs = db.prepare(`
+    SELECT DISTINCT customer_address FROM orders
+    WHERE customer_phone LIKE ? AND customer_address != '' AND status = 'billed'
+    ORDER BY created_at DESC LIMIT 10
+  `).all(`%${p}%`)
+  return {
+    name: recent.customer_name || '',
+    phone: recent.customer_phone || '',
+    addresses: addrs.map(a => a.customer_address).filter(Boolean),
+  }
+})
+
+// ─── INVENTORY ENTRY IPC ─────────────────────────────────────────────────────
+ipcMain.handle('inventory:getAllForEntry', () => {
+  return db.prepare(`
+    SELECT i.*, c.name as category_name, m.name as linked_item_name
+    FROM inventory_items i
+    LEFT JOIN inventory_categories c ON i.category_id = c.id
+    LEFT JOIN menu_items m ON i.linked_menu_item_id = m.id
+    WHERE i.active = 1 ORDER BY i.name
+  `).all()
+})
+
+ipcMain.handle('inventory:batchEntry', (_, entries, staffId) => {
+  const run = db.transaction((rows) => {
+    rows.forEach(e => {
+      const item = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(e.inventory_item_id)
+      if (!item) return
+      const qty = parseFloat(e.quantity) || 0
+      let newStock = item.current_stock
+      if (e.movement_type === 'purchase' || e.movement_type === 'manual_add') newStock += qty
+      else if (e.movement_type === 'wastage' || e.movement_type === 'manual_remove') newStock = Math.max(0, newStock - qty)
+      else if (e.movement_type === 'manual_set') newStock = qty
+      db.prepare("UPDATE inventory_items SET current_stock=?, updated_at=datetime('now') WHERE id=?").run(newStock, e.inventory_item_id)
+      db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id, staff_id) VALUES (?,?,?,?,?,?)').run(
+        e.inventory_item_id, e.movement_type, qty, e.reason || '', e.reference || '', staffId || null
+      )
+    })
+  })
+  try { run(entries); return { success: true } }
+  catch (e) { return { success: false, error: e.message } }
+})
+
+ipcMain.handle('inventory:getTransactions', (_, dateFrom, dateTo) => {
+  const from = dateFrom || new Date().toISOString().slice(0, 10)
+  const to = dateTo || from
+  return db.prepare(`
+    SELECT sm.*, i.name as item_name, i.base_unit, u.username as staff_name
+    FROM stock_movements sm
+    JOIN inventory_items i ON sm.inventory_item_id = i.id
+    LEFT JOIN users u ON sm.staff_id = u.id
+    WHERE DATE(sm.created_at) BETWEEN ? AND ?
+    ORDER BY sm.created_at DESC LIMIT 500
+  `).all(from, to)
 })
 
 // ─── PRINT IPC ───────────────────────────────────────────────────────────────
