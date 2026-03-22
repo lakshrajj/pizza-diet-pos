@@ -353,6 +353,7 @@ function seedDefaults() {
     auto_print: 'false',
     day_closed: 'false',
     current_bill_number: '1',
+    bill_last_date: '',
   }
   const upsert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
   for (const [k, v] of Object.entries(defaults)) {
@@ -407,24 +408,30 @@ function getSetting(key) {
 function getNextBillNumber() {
   const prefix = getSetting('bill_prefix') || 'PD'
   const resetDaily = getSetting('bill_reset_daily') === 'true'
-  let num = parseInt(getSetting('current_bill_number') || '1', 10)
 
+  // Date segment used when daily reset is on — makes each day's numbers unique
+  const today = new Date().toISOString().slice(0, 10)           // "2026-03-22"
+  const dateTag = today.slice(2).replace(/-/g, '')              // "260322"
+  const fullPrefix = resetDaily ? `${prefix}-${dateTag}` : prefix
+
+  // Start counter from 1 on a new day, otherwise continue from saved value
+  let num = 1
   if (resetDaily) {
-    const today = new Date().toISOString().slice(0, 10)
-    const lastOrder = db.prepare(`
-      SELECT order_number, created_at FROM orders
-      WHERE status != 'void' ORDER BY id DESC LIMIT 1
-    `).get()
-    if (!lastOrder || !lastOrder.created_at.startsWith(today)) {
-      num = 1
+    const lastSavedDate = getSetting('bill_last_date') || ''
+    if (lastSavedDate === today) {
+      num = parseInt(getSetting('current_bill_number') || '1', 10)
     }
+    // Save today as last date
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(today, 'bill_last_date')
+  } else {
+    num = parseInt(getSetting('current_bill_number') || '1', 10)
   }
 
-  // Always sync num to be at least max(existing)+1 to prevent collisions
+  // Sync num to be above any existing order with this prefix
   const maxRow = db.prepare(`
     SELECT order_number FROM orders
     WHERE order_number LIKE ? ORDER BY id DESC LIMIT 1
-  `).get(`${prefix}-%`)
+  `).get(`${fullPrefix}-%`)
   if (maxRow) {
     const parts = maxRow.order_number.split('-')
     const existingMax = parseInt(parts[parts.length - 1], 10)
@@ -432,10 +439,10 @@ function getNextBillNumber() {
   }
 
   // Final safety: skip any number that already exists
-  let billNo = `${prefix}-${String(num).padStart(4, '0')}`
+  let billNo = `${fullPrefix}-${String(num).padStart(4, '0')}`
   while (db.prepare('SELECT 1 FROM orders WHERE order_number = ?').get(billNo)) {
     num++
-    billNo = `${prefix}-${String(num).padStart(4, '0')}`
+    billNo = `${fullPrefix}-${String(num).padStart(4, '0')}`
   }
 
   db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(String(num + 1), 'current_bill_number')
