@@ -5,210 +5,310 @@ import VariantBuilder from '../components/VariantBuilder'
 const GST_OPTIONS = [0, 5, 12, 18]
 const STEPS = ['Basic Info', 'Variants', 'Add-ons', 'Ingredients']
 
-// ── Ingredient Builder ─────────────────────────────────────────────────────
-function IngredientBuilder({ ingredients, variants, hasVariants, stockItems, onChange }) {
-  const [search, setSearch] = useState('')
-  const [showPicker, setShowPicker] = useState(false)
+// ── Helpers: convert between flat ingredients[] and per-variant map ─────────
+function ingredientsToVariantMap(ingredients, variants) {
+  // Returns { "Small": [{inventory_item_id, stock_item_name, base_unit, quantity}], ... }
+  const map = {}
+  variants.forEach(v => { map[v.variant_name] = [] })
+  ingredients.forEach(ing => {
+    if (!ing.variant_quantities || ing.variant_quantities.length === 0) {
+      // base_quantity applies to all variants
+      if (ing.base_quantity > 0) {
+        variants.forEach(v => {
+          map[v.variant_name].push({
+            inventory_item_id: ing.inventory_item_id,
+            stock_item_name: ing.stock_item_name,
+            base_unit: ing.base_unit || '',
+            quantity: ing.base_quantity,
+          })
+        })
+      }
+    } else {
+      ing.variant_quantities.forEach(vq => {
+        if (vq.quantity > 0 && map[vq.variant_name]) {
+          map[vq.variant_name].push({
+            inventory_item_id: ing.inventory_item_id,
+            stock_item_name: ing.stock_item_name,
+            base_unit: ing.base_unit || '',
+            quantity: vq.quantity,
+          })
+        }
+      })
+    }
+  })
+  return map
+}
 
-  const stockOptions = stockItems.filter(s =>
-    !ingredients.find(i => i.inventory_item_id === s.id) &&
+function variantMapToIngredients(variantMap, variants) {
+  // Collect all unique stock items used across any variant
+  const stockMap = new Map()
+  variants.forEach(v => {
+    ;(variantMap[v.variant_name] || []).forEach(item => {
+      if (!stockMap.has(item.inventory_item_id)) {
+        stockMap.set(item.inventory_item_id, {
+          inventory_item_id: item.inventory_item_id,
+          stock_item_name: item.stock_item_name,
+          base_unit: item.base_unit,
+          base_quantity: 0,
+          variant_quantities: [],
+        })
+      }
+    })
+  })
+  // Fill variant_quantities for each stock item
+  variants.forEach(v => {
+    stockMap.forEach((ing, stockId) => {
+      const match = (variantMap[v.variant_name] || []).find(i => i.inventory_item_id === stockId)
+      ing.variant_quantities.push({
+        variant_name: v.variant_name,
+        quantity: match ? match.quantity : 0,
+      })
+    })
+  })
+  return Array.from(stockMap.values())
+}
+
+// ── Stock Item Picker (shared) ───────────────────────────────────────────────
+function StockPicker({ stockItems, exclude, onPick, onClose }) {
+  const [search, setSearch] = useState('')
+  const options = stockItems.filter(s =>
+    !exclude.includes(s.id) &&
     s.name.toLowerCase().includes(search.toLowerCase())
   )
-
-  const addIngredient = (stockItem) => {
-    const newIng = {
-      inventory_item_id: stockItem.id,
-      stock_item_name: stockItem.name,
-      base_unit: stockItem.base_unit || '',
-      base_quantity: 1,
-      variant_quantities: hasVariants
-        ? variants.map(v => ({ variant_name: v.variant_name, quantity: 1 }))
-        : [],
-    }
-    onChange([...ingredients, newIng])
-    setSearch('')
-    setShowPicker(false)
-  }
-
-  const removeIngredient = (idx) => {
-    onChange(ingredients.filter((_, i) => i !== idx))
-  }
-
-  const updateBase = (idx, val) => {
-    const next = [...ingredients]
-    next[idx] = { ...next[idx], base_quantity: parseFloat(val) || 0 }
-    onChange(next)
-  }
-
-  const updateVariantQty = (ingIdx, variantName, val) => {
-    const next = [...ingredients]
-    const vqs = [...(next[ingIdx].variant_quantities || [])]
-    const vi = vqs.findIndex(v => v.variant_name === variantName)
-    if (vi >= 0) vqs[vi] = { ...vqs[vi], quantity: parseFloat(val) || 0 }
-    else vqs.push({ variant_name: variantName, quantity: parseFloat(val) || 0 })
-    next[ingIdx] = { ...next[ingIdx], variant_quantities: vqs }
-    onChange(next)
-  }
-
-  const getVariantQty = (ing, variantName) => {
-    const vq = ing.variant_quantities?.find(v => v.variant_name === variantName)
-    return vq ? vq.quantity : ing.base_quantity
-  }
-
   return (
-    <div>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-        Link stock items used to make this dish. Stock will auto-deduct each time this item is sold.
-        {hasVariants && ' Set per-size quantities below.'}
-      </p>
-
-      {/* Ingredient rows */}
-      {ingredients.length === 0 ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13, padding: '16px 0', textAlign: 'center' }}>
-          No ingredients linked yet. Click "+ Add Stock Item" to start.
-        </div>
-      ) : (
-        <div style={{ marginBottom: 16 }}>
-          {/* Header */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: hasVariants
-              ? `180px repeat(${variants.length}, 80px) 36px`
-              : '1fr 120px 36px',
-            gap: 8,
-            padding: '6px 8px',
-            background: 'var(--surface2)',
-            borderRadius: 6,
-            marginBottom: 6,
-            fontSize: 11,
-            fontWeight: 700,
-            color: 'var(--muted)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-          }}>
-            <div>Stock Item</div>
-            {hasVariants
-              ? variants.map(v => <div key={v.variant_name} style={{ textAlign: 'center' }}>{v.variant_name}</div>)
-              : <div style={{ textAlign: 'center' }}>Qty used</div>
-            }
-            <div />
+    <div style={{ marginTop: 8 }}>
+      <input
+        autoFocus
+        className="form-input"
+        placeholder="Search stock items…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        onKeyDown={e => e.key === 'Escape' && onClose()}
+      />
+      <div style={{
+        border: '1px solid var(--border)', borderRadius: 8, marginTop: 4,
+        maxHeight: 180, overflowY: 'auto', background: 'var(--surface)',
+      }}>
+        {options.length === 0 ? (
+          <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>
+            {stockItems.length === 0 ? 'No stock items yet — add in Stock Manager first.' : 'No more items to add.'}
           </div>
-
-          {/* Rows */}
-          {ingredients.map((ing, idx) => (
-            <div key={ing.inventory_item_id} style={{
-              display: 'grid',
-              gridTemplateColumns: hasVariants
-                ? `180px repeat(${variants.length}, 80px) 36px`
-                : '1fr 120px 36px',
-              gap: 8,
-              alignItems: 'center',
-              padding: '6px 8px',
+        ) : options.map(s => (
+          <div
+            key={s.id}
+            onClick={() => onPick(s)}
+            style={{
+              padding: '9px 14px', cursor: 'pointer', fontSize: 13,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               borderBottom: '1px solid var(--border)',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+            onMouseLeave={e => e.currentTarget.style.background = ''}
+          >
+            <span style={{ fontWeight: 600 }}>{s.name}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{s.base_unit || 'units'}</span>
+          </div>
+        ))}
+      </div>
+      <button className="btn btn-outline btn-sm" style={{ marginTop: 6 }} onClick={onClose}>Cancel</button>
+    </div>
+  )
+}
+
+// ── Ingredient Builder ─────────────────────────────────────────────────────
+function IngredientBuilder({ ingredients, variants, hasVariants, stockItems, onChange }) {
+  const [showPicker, setShowPicker] = useState(false)
+  // For variant mode: which variant tab is active
+  const [activeVariant, setActiveVariant] = useState(variants[0]?.variant_name || '')
+  const [showVariantPicker, setShowVariantPicker] = useState(false)
+
+  // ── NON-VARIANT MODE ─────────────────────────────────────────────────────
+  if (!hasVariants) {
+    const addIngredient = (s) => {
+      onChange([...ingredients, {
+        inventory_item_id: s.id,
+        stock_item_name: s.name,
+        base_unit: s.base_unit || '',
+        base_quantity: 1,
+        variant_quantities: [],
+      }])
+      setShowPicker(false)
+    }
+    const remove = (idx) => onChange(ingredients.filter((_, i) => i !== idx))
+    const updateQty = (idx, val) => {
+      const next = [...ingredients]
+      next[idx] = { ...next[idx], base_quantity: parseFloat(val) || 0 }
+      onChange(next)
+    }
+    const excludeIds = ingredients.map(i => i.inventory_item_id)
+
+    return (
+      <div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+          Add stock items used to make this dish. Quantity will auto-deduct on every sale.
+        </p>
+        {ingredients.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1fr 110px 36px', gap: 8,
+              padding: '5px 8px', background: 'var(--surface2)', borderRadius: 6,
+              fontSize: 11, fontWeight: 700, color: 'var(--muted)',
+              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4,
             }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>
-                {ing.stock_item_name}
-                {ing.base_unit && <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({ing.base_unit})</span>}
-              </div>
-
-              {hasVariants ? (
-                variants.map(v => (
-                  <input
-                    key={v.variant_name}
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    style={{
-                      width: '100%', padding: '5px 6px', border: '1px solid var(--border)',
-                      borderRadius: 6, fontSize: 13, textAlign: 'center',
-                      background: 'var(--surface)', color: 'var(--text)',
-                    }}
-                    value={getVariantQty(ing, v.variant_name)}
-                    onChange={e => updateVariantQty(idx, v.variant_name, e.target.value)}
-                  />
-                ))
-              ) : (
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  style={{
-                    width: '100%', padding: '5px 8px', border: '1px solid var(--border)',
-                    borderRadius: 6, fontSize: 13, textAlign: 'center',
-                    background: 'var(--surface)', color: 'var(--text)',
-                  }}
-                  value={ing.base_quantity}
-                  onChange={e => updateBase(idx, e.target.value)}
-                />
-              )}
-
-              <button
-                type="button"
-                onClick={() => removeIngredient(idx)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: 4,
-                }}
-                title="Remove"
-              >×</button>
+              <div>Stock Item</div>
+              <div style={{ textAlign: 'center' }}>Qty used</div>
+              <div />
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Stock item picker */}
-      {showPicker ? (
-        <div style={{ position: 'relative' }}>
-          <input
-            autoFocus
-            className="form-input"
-            placeholder="Search stock items…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Escape' && setShowPicker(false)}
-          />
-          <div style={{
-            border: '1px solid var(--border)', borderRadius: 8, marginTop: 4,
-            maxHeight: 200, overflowY: 'auto', background: 'var(--surface)',
-          }}>
-            {stockOptions.length === 0 ? (
-              <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>
-                {stockItems.length === 0
-                  ? 'No stock items found. Add items in Stock Manager first.'
-                  : 'No matches or all items already added.'}
-              </div>
-            ) : stockOptions.map(s => (
-              <div
-                key={s.id}
-                onClick={() => addIngredient(s)}
-                style={{
-                  padding: '10px 14px', cursor: 'pointer', fontSize: 13,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  borderBottom: '1px solid var(--border)',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
-                onMouseLeave={e => e.currentTarget.style.background = ''}
-              >
-                <span style={{ fontWeight: 600 }}>{s.name}</span>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{s.base_unit || 'units'}</span>
+            {ingredients.map((ing, idx) => (
+              <div key={ing.inventory_item_id} style={{
+                display: 'grid', gridTemplateColumns: '1fr 110px 36px',
+                gap: 8, alignItems: 'center', padding: '6px 8px',
+                borderBottom: '1px solid var(--border)',
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {ing.stock_item_name}
+                  {ing.base_unit && <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({ing.base_unit})</span>}
+                </div>
+                <input type="number" min="0" step="0.1"
+                  style={{ width: '100%', padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, textAlign: 'center', background: 'var(--surface)', color: 'var(--text)' }}
+                  value={ing.base_quantity}
+                  onChange={e => updateQty(idx, e.target.value)}
+                />
+                <button type="button" onClick={() => remove(idx)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: 4 }}>×</button>
               </div>
             ))}
           </div>
-          <button className="btn btn-outline btn-sm" style={{ marginTop: 6 }} onClick={() => setShowPicker(false)}>
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <button className="btn btn-outline btn-sm" onClick={() => setShowPicker(true)}>
-          + Add Stock Item
-        </button>
-      )}
+        )}
+        {showPicker
+          ? <StockPicker stockItems={stockItems} exclude={excludeIds} onPick={addIngredient} onClose={() => setShowPicker(false)} />
+          : <button className="btn btn-outline btn-sm" onClick={() => setShowPicker(true)}>+ Add Stock Item</button>
+        }
+      </div>
+    )
+  }
 
-      {stockItems.length === 0 && (
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>
-          ⚠️ No stock items yet. Go to Stock Manager to add items first.
-        </p>
-      )}
+  // ── VARIANT MODE ─────────────────────────────────────────────────────────
+  // Convert flat ingredients[] to per-variant map for editing
+  const variantMap = ingredientsToVariantMap(ingredients, variants)
+
+  const updateVariantMap = (newMap) => {
+    onChange(variantMapToIngredients(newMap, variants))
+  }
+
+  const currentItems = variantMap[activeVariant] || []
+  const excludeIds = currentItems.map(i => i.inventory_item_id)
+
+  const addToVariant = (s) => {
+    const newMap = { ...variantMap }
+    newMap[activeVariant] = [
+      ...(newMap[activeVariant] || []),
+      { inventory_item_id: s.id, stock_item_name: s.name, base_unit: s.base_unit || '', quantity: 1 },
+    ]
+    updateVariantMap(newMap)
+    setShowVariantPicker(false)
+  }
+
+  const removeFromVariant = (stockId) => {
+    const newMap = { ...variantMap }
+    newMap[activeVariant] = (newMap[activeVariant] || []).filter(i => i.inventory_item_id !== stockId)
+    updateVariantMap(newMap)
+  }
+
+  const updateVariantItemQty = (stockId, val) => {
+    const newMap = { ...variantMap }
+    newMap[activeVariant] = (newMap[activeVariant] || []).map(i =>
+      i.inventory_item_id === stockId ? { ...i, quantity: parseFloat(val) || 0 } : i
+    )
+    updateVariantMap(newMap)
+  }
+
+  // Count configured variants for summary badge
+  const configuredCount = variants.filter(v => (variantMap[v.variant_name] || []).length > 0).length
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+        Each size has its own recipe. Select a size tab and add the stock items for that size.
+        {configuredCount > 0 && (
+          <span style={{ marginLeft: 8, color: 'var(--accent)', fontWeight: 600 }}>
+            {configuredCount}/{variants.length} sizes configured
+          </span>
+        )}
+      </p>
+
+      {/* Variant tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {variants.map(v => {
+          const hasItems = (variantMap[v.variant_name] || []).length > 0
+          const isActive = activeVariant === v.variant_name
+          return (
+            <button
+              key={v.variant_name}
+              type="button"
+              onClick={() => { setActiveVariant(v.variant_name); setShowVariantPicker(false) }}
+              style={{
+                padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s',
+                border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                background: isActive ? 'var(--accent)' : 'transparent',
+                color: isActive ? '#fff' : 'var(--text)',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {v.variant_name}
+              {hasItems && <span style={{ fontSize: 11, opacity: 0.85 }}>✓</span>}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Current variant items */}
+      <div style={{
+        border: '1px solid var(--border)', borderRadius: 8,
+        padding: 12, background: 'var(--surface2)', marginBottom: 10,
+        minHeight: 60,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+          {activeVariant} Recipe
+        </div>
+
+        {currentItems.length === 0 ? (
+          <div style={{ color: 'var(--muted)', fontSize: 13, paddingBottom: 4 }}>
+            No stock items for {activeVariant} yet.
+          </div>
+        ) : currentItems.map(item => (
+          <div key={item.inventory_item_id} style={{
+            display: 'grid', gridTemplateColumns: '1fr 100px 32px',
+            gap: 8, alignItems: 'center', marginBottom: 6,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {item.stock_item_name}
+              {item.base_unit && <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({item.base_unit})</span>}
+            </div>
+            <input type="number" min="0" step="0.1"
+              style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, textAlign: 'center', background: 'var(--surface)', color: 'var(--text)' }}
+              value={item.quantity}
+              onChange={e => updateVariantItemQty(item.inventory_item_id, e.target.value)}
+            />
+            <button type="button" onClick={() => removeFromVariant(item.inventory_item_id)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: 2 }}>×</button>
+          </div>
+        ))}
+
+        {showVariantPicker ? (
+          <StockPicker
+            stockItems={stockItems}
+            exclude={excludeIds}
+            onPick={addToVariant}
+            onClose={() => setShowVariantPicker(false)}
+          />
+        ) : (
+          <button className="btn btn-outline btn-sm" style={{ marginTop: 4 }} onClick={() => setShowVariantPicker(true)}>
+            + Add to {activeVariant}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

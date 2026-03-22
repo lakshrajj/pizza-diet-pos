@@ -971,6 +971,7 @@ function deductInventory(items, orderNumber) {
         if (iv) qty = iv.quantity
       }
       qty *= item.qty
+      if (qty <= 0) return  // Skip zero-quantity entries (variant not mapped to this stock item)
 
       const curr = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(ing.inventory_item_id)
       if (curr) {
