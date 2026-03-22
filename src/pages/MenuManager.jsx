@@ -5,6 +5,214 @@ import VariantBuilder from '../components/VariantBuilder'
 const GST_OPTIONS = [0, 5, 12, 18]
 const STEPS = ['Basic Info', 'Variants', 'Add-ons', 'Ingredients']
 
+// ── Ingredient Builder ─────────────────────────────────────────────────────
+function IngredientBuilder({ ingredients, variants, hasVariants, stockItems, onChange }) {
+  const [search, setSearch] = useState('')
+  const [showPicker, setShowPicker] = useState(false)
+
+  const stockOptions = stockItems.filter(s =>
+    !ingredients.find(i => i.inventory_item_id === s.id) &&
+    s.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const addIngredient = (stockItem) => {
+    const newIng = {
+      inventory_item_id: stockItem.id,
+      stock_item_name: stockItem.name,
+      base_unit: stockItem.base_unit || '',
+      base_quantity: 1,
+      variant_quantities: hasVariants
+        ? variants.map(v => ({ variant_name: v.variant_name, quantity: 1 }))
+        : [],
+    }
+    onChange([...ingredients, newIng])
+    setSearch('')
+    setShowPicker(false)
+  }
+
+  const removeIngredient = (idx) => {
+    onChange(ingredients.filter((_, i) => i !== idx))
+  }
+
+  const updateBase = (idx, val) => {
+    const next = [...ingredients]
+    next[idx] = { ...next[idx], base_quantity: parseFloat(val) || 0 }
+    onChange(next)
+  }
+
+  const updateVariantQty = (ingIdx, variantName, val) => {
+    const next = [...ingredients]
+    const vqs = [...(next[ingIdx].variant_quantities || [])]
+    const vi = vqs.findIndex(v => v.variant_name === variantName)
+    if (vi >= 0) vqs[vi] = { ...vqs[vi], quantity: parseFloat(val) || 0 }
+    else vqs.push({ variant_name: variantName, quantity: parseFloat(val) || 0 })
+    next[ingIdx] = { ...next[ingIdx], variant_quantities: vqs }
+    onChange(next)
+  }
+
+  const getVariantQty = (ing, variantName) => {
+    const vq = ing.variant_quantities?.find(v => v.variant_name === variantName)
+    return vq ? vq.quantity : ing.base_quantity
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+        Link stock items used to make this dish. Stock will auto-deduct each time this item is sold.
+        {hasVariants && ' Set per-size quantities below.'}
+      </p>
+
+      {/* Ingredient rows */}
+      {ingredients.length === 0 ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13, padding: '16px 0', textAlign: 'center' }}>
+          No ingredients linked yet. Click "+ Add Stock Item" to start.
+        </div>
+      ) : (
+        <div style={{ marginBottom: 16 }}>
+          {/* Header */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: hasVariants
+              ? `180px repeat(${variants.length}, 80px) 36px`
+              : '1fr 120px 36px',
+            gap: 8,
+            padding: '6px 8px',
+            background: 'var(--surface2)',
+            borderRadius: 6,
+            marginBottom: 6,
+            fontSize: 11,
+            fontWeight: 700,
+            color: 'var(--muted)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}>
+            <div>Stock Item</div>
+            {hasVariants
+              ? variants.map(v => <div key={v.variant_name} style={{ textAlign: 'center' }}>{v.variant_name}</div>)
+              : <div style={{ textAlign: 'center' }}>Qty used</div>
+            }
+            <div />
+          </div>
+
+          {/* Rows */}
+          {ingredients.map((ing, idx) => (
+            <div key={ing.inventory_item_id} style={{
+              display: 'grid',
+              gridTemplateColumns: hasVariants
+                ? `180px repeat(${variants.length}, 80px) 36px`
+                : '1fr 120px 36px',
+              gap: 8,
+              alignItems: 'center',
+              padding: '6px 8px',
+              borderBottom: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>
+                {ing.stock_item_name}
+                {ing.base_unit && <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>({ing.base_unit})</span>}
+              </div>
+
+              {hasVariants ? (
+                variants.map(v => (
+                  <input
+                    key={v.variant_name}
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    style={{
+                      width: '100%', padding: '5px 6px', border: '1px solid var(--border)',
+                      borderRadius: 6, fontSize: 13, textAlign: 'center',
+                      background: 'var(--surface)', color: 'var(--text)',
+                    }}
+                    value={getVariantQty(ing, v.variant_name)}
+                    onChange={e => updateVariantQty(idx, v.variant_name, e.target.value)}
+                  />
+                ))
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  style={{
+                    width: '100%', padding: '5px 8px', border: '1px solid var(--border)',
+                    borderRadius: 6, fontSize: 13, textAlign: 'center',
+                    background: 'var(--surface)', color: 'var(--text)',
+                  }}
+                  value={ing.base_quantity}
+                  onChange={e => updateBase(idx, e.target.value)}
+                />
+              )}
+
+              <button
+                type="button"
+                onClick={() => removeIngredient(idx)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: 4,
+                }}
+                title="Remove"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Stock item picker */}
+      {showPicker ? (
+        <div style={{ position: 'relative' }}>
+          <input
+            autoFocus
+            className="form-input"
+            placeholder="Search stock items…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && setShowPicker(false)}
+          />
+          <div style={{
+            border: '1px solid var(--border)', borderRadius: 8, marginTop: 4,
+            maxHeight: 200, overflowY: 'auto', background: 'var(--surface)',
+          }}>
+            {stockOptions.length === 0 ? (
+              <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>
+                {stockItems.length === 0
+                  ? 'No stock items found. Add items in Stock Manager first.'
+                  : 'No matches or all items already added.'}
+              </div>
+            ) : stockOptions.map(s => (
+              <div
+                key={s.id}
+                onClick={() => addIngredient(s)}
+                style={{
+                  padding: '10px 14px', cursor: 'pointer', fontSize: 13,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  borderBottom: '1px solid var(--border)',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+                onMouseLeave={e => e.currentTarget.style.background = ''}
+              >
+                <span style={{ fontWeight: 600 }}>{s.name}</span>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{s.base_unit || 'units'}</span>
+              </div>
+            ))}
+          </div>
+          <button className="btn btn-outline btn-sm" style={{ marginTop: 6 }} onClick={() => setShowPicker(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button className="btn btn-outline btn-sm" onClick={() => setShowPicker(true)}>
+          + Add Stock Item
+        </button>
+      )}
+
+      {stockItems.length === 0 && (
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>
+          ⚠️ No stock items yet. Go to Stock Manager to add items first.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ItemForm({ item, categories, subcategories, addons, inventoryItems, onSave, onClose }) {
   const toast = useToast()
   const [step, setStep] = useState(0)
@@ -21,7 +229,13 @@ function ItemForm({ item, categories, subcategories, addons, inventoryItems, onS
     base_price: item?.base_price || '',
     variants: item?.variants || [],
     selected_addons: [],
-    ingredients: [],
+    ingredients: item?.ingredients?.map(ing => ({
+      inventory_item_id: ing.inventory_item_id,
+      stock_item_name: ing.stock_item_name,
+      base_unit: ing.base_unit || '',
+      base_quantity: ing.base_quantity,
+      variant_quantities: ing.variant_quantities || [],
+    })) || [],
   })
 
   const filteredSubs = subcategories.filter(s => s.category_id === parseInt(data.category_id))
@@ -224,22 +438,15 @@ function ItemForm({ item, categories, subcategories, addons, inventoryItems, onS
             </div>
           )}
 
-          {/* STEP 4 — Ingredients */}
+          {/* STEP 4 — Ingredients / Recipe */}
           {step === 3 && (
-            <div>
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-                Link inventory items as ingredients. Stock will be auto-deducted when this item is sold.
-              </p>
-              {inventoryItems.length === 0 ? (
-                <div style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
-                  No inventory items yet. Add them in Inventory Manager first.
-                </div>
-              ) : (
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  Ingredient linking can be configured after saving. Go to Menu Manager → Edit Item to add ingredients.
-                </div>
-              )}
-            </div>
+            <IngredientBuilder
+              ingredients={data.ingredients}
+              variants={data.variants}
+              hasVariants={data.has_variants}
+              stockItems={inventoryItems}
+              onChange={ings => set('ingredients', ings)}
+            />
           )}
         </div>
 

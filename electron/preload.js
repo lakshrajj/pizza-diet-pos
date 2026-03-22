@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   updateMenuItem: (id, data) => ipcRenderer.invoke('menu:updateItem', id, data),
   deleteMenuItem: (id) => ipcRenderer.invoke('menu:deleteItem', id),
   toggleMenuItemActive: (id, active) => ipcRenderer.invoke('menu:toggleActive', id, active),
+  getMenuIngredients: (menuItemId) => ipcRenderer.invoke('menu:getIngredients', menuItemId),
 
   // Add-ons
   getAddons: () => ipcRenderer.invoke('addon:getAll'),

@@ -545,11 +545,36 @@ ipcMain.handle('menu:getItems', () => {
   `).all()
 
   const variantsStmt = db.prepare('SELECT * FROM item_variants WHERE menu_item_id = ? ORDER BY display_order')
+  const ingStmt = db.prepare(`
+    SELECT ing.*, inv.name as stock_item_name, inv.base_unit
+    FROM ingredients ing
+    JOIN inventory_items inv ON ing.inventory_item_id = inv.id
+    WHERE ing.menu_item_id = ?
+  `)
+  const ivStmt = db.prepare('SELECT * FROM ingredient_variants WHERE ingredient_id = ?')
 
-  return items.map(item => ({
-    ...item,
-    variants: variantsStmt.all(item.id),
-  }))
+  return items.map(item => {
+    const ings = ingStmt.all(item.id).map(ing => ({
+      ...ing,
+      variant_quantities: ivStmt.all(ing.id),
+    }))
+    return {
+      ...item,
+      variants: variantsStmt.all(item.id),
+      ingredients: ings,
+    }
+  })
+})
+
+ipcMain.handle('menu:getIngredients', (_, menuItemId) => {
+  const ings = db.prepare(`
+    SELECT ing.*, inv.name as stock_item_name, inv.base_unit
+    FROM ingredients ing
+    JOIN inventory_items inv ON ing.inventory_item_id = inv.id
+    WHERE ing.menu_item_id = ?
+  `).all(menuItemId)
+  const ivStmt = db.prepare('SELECT * FROM ingredient_variants WHERE ingredient_id = ?')
+  return ings.map(ing => ({ ...ing, variant_quantities: ivStmt.all(ing.id) }))
 })
 
 ipcMain.handle('menu:getItemsForBilling', () => {
@@ -949,10 +974,10 @@ function deductInventory(items, orderNumber) {
 
       const curr = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(ing.inventory_item_id)
       if (curr) {
-        const newStock = Math.max(0, curr.current_stock - qty)
+        const newStock = curr.current_stock - qty  // Allow negative for accurate over-use tracking
         db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = datetime('now') WHERE id = ?").run(newStock, ing.inventory_item_id)
         db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id) VALUES (?, ?, ?, ?, ?)').run(
-          ing.inventory_item_id, 'sale', qty, 'Auto deduct from sale', orderNumber
+          ing.inventory_item_id, 'sale', qty, `Recipe deduct: ${item.item_name}${item.variant_name ? ' (' + item.variant_name + ')' : ''}`, orderNumber
         )
       }
     })
