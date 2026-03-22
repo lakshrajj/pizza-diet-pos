@@ -417,11 +417,27 @@ function getNextBillNumber() {
     `).get()
     if (!lastOrder || !lastOrder.created_at.startsWith(today)) {
       num = 1
-      db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('1', 'current_bill_number')
     }
   }
 
-  const billNo = `${prefix}-${String(num).padStart(4, '0')}`
+  // Always sync num to be at least max(existing)+1 to prevent collisions
+  const maxRow = db.prepare(`
+    SELECT order_number FROM orders
+    WHERE order_number LIKE ? ORDER BY id DESC LIMIT 1
+  `).get(`${prefix}-%`)
+  if (maxRow) {
+    const parts = maxRow.order_number.split('-')
+    const existingMax = parseInt(parts[parts.length - 1], 10)
+    if (!isNaN(existingMax) && existingMax >= num) num = existingMax + 1
+  }
+
+  // Final safety: skip any number that already exists
+  let billNo = `${prefix}-${String(num).padStart(4, '0')}`
+  while (db.prepare('SELECT 1 FROM orders WHERE order_number = ?').get(billNo)) {
+    num++
+    billNo = `${prefix}-${String(num).padStart(4, '0')}`
+  }
+
   db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(String(num + 1), 'current_bill_number')
   return billNo
 }

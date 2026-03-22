@@ -16,17 +16,17 @@ import CustomerManager from './pages/CustomerManager'
 
 // Pages visible in topbar nav (non-management)
 const NAV_MAIN = [
-  { key: 'billing',    label: 'Billing',      icon: '🧾', staffAllowed: true  },
-  { key: 'inv-entry',  label: 'Stock Entry',  icon: '📥', staffAllowed: true  },
-  { key: 'operations', label: 'Operations',   icon: '📊', staffAllowed: true  },
-  { key: 'settings',   label: 'Settings',     icon: '🔧', staffAllowed: false },
+  { key: 'billing',    label: 'Billing',    icon: '🧾', staffAllowed: true  },
+  { key: 'inventory',  label: 'Inventory',  icon: '📦', staffAllowed: false },
+  { key: 'operations', label: 'Operations', icon: '📊', staffAllowed: true  },
+  { key: 'settings',   label: 'Settings',   icon: '🔧', staffAllowed: false },
 ]
 
 // Management dropdown pages (admin-only)
 const NAV_MGMT = [
   { key: 'customers',  label: 'Customer Management', icon: '👥' },
   { key: 'menu',       label: 'Menu Manager',         icon: '🍕' },
-  { key: 'inventory',  label: 'Inventory',            icon: '📦' },
+  { key: 'inv-entry',  label: 'Stock Entry',          icon: '📥' },
   { key: 'categories', label: 'Categories',           icon: '⚙️' },
 ]
 
@@ -194,14 +194,6 @@ function AppContent() {
         )}
 
         <div className="t-right">
-          {/* Dark mode toggle */}
-          <button
-            className="dark-toggle"
-            onClick={() => setDarkMode(d => !d)}
-            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          >
-            {darkMode ? '☀️' : '🌙'}
-          </button>
           <span className="t-staff">
             👤 {user?.username}
             <span style={{ marginLeft: 6, fontSize: 11, background: user?.role === 'admin' ? 'var(--accent-lt)' : 'var(--surface)', color: user?.role === 'admin' ? 'var(--accent)' : 'var(--muted)', padding: '2px 6px', borderRadius: 10, fontWeight: 700 }}>
@@ -277,7 +269,7 @@ function AppContent() {
 
             {activePage === 'settings' && isAdminUser && (
               <div className="page active">
-                <Settings />
+                <Settings darkMode={darkMode} onToggleDark={() => setDarkMode(d => !d)} />
               </div>
             )}
 

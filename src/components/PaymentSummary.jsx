@@ -66,8 +66,8 @@ export default function PaymentSummary({ settings, onBill, onHold, onClear, onRe
     setShowAddrDrop(false)
   }
 
-  // Address field visible for delivery always, or dine/takeaway when customer has saved addresses or already typed one
-  const showAddressField = isDelivery || customerAddress || (customerFound?.isKnown && savedAddresses.length > 0)
+  // Address field only for delivery orders
+  const showAddressField = isDelivery
 
   return (
     <div className="bright">

@@ -4,7 +4,7 @@ import { useToast } from '../components/Toast'
 const PAPER_WIDTHS = ['58', '80']
 const PRINTER_PORTS = ['USB', 'COM1', 'COM2', 'COM3', 'LPT1', 'Network']
 
-export default function Settings() {
+export default function Settings({ darkMode, onToggleDark }) {
   const toast = useToast()
   const [settings, setSettings] = useState({
     store_name: '',
@@ -110,11 +110,26 @@ export default function Settings() {
         <div className="card">
           <div className="card-title">Feature Toggles</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Dark Mode — managed at app level */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>🌙 Dark Mode</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Switch between light and dark theme</div>
+              </div>
+              <div className="toggle-wrap">
+                <label className="toggle">
+                  <input type="checkbox" checked={!!darkMode} onChange={onToggleDark} />
+                  <span className="slider" />
+                </label>
+              </div>
+            </div>
+
             {[
-              { key: 'gst_enabled', label: 'GST Enabled', desc: 'Show GST line in payment summary and receipts' },
-              { key: 'day_close_enabled', label: 'Day Close Enabled', desc: 'Allow closing the day from Operations' },
-              { key: 'bill_reset_daily', label: 'Reset Bill Numbers Daily', desc: 'Bill counter resets to 0001 each day' },
-              { key: 'auto_print', label: 'Auto-print on Bill', desc: 'Automatically send receipt to printer when order is billed' },
+              { key: 'gst_enabled',       label: 'GST Enabled',              desc: 'Show GST line in payment summary and receipts' },
+              { key: 'day_close_enabled', label: 'Day Close Enabled',        desc: 'Allow closing the day from Operations' },
+              { key: 'bill_reset_daily',  label: 'Reset Bill Numbers Daily', desc: 'Bill counter resets to 0001 each day' },
+              { key: 'auto_print',        label: 'Auto-print on Bill',       desc: 'Automatically send receipt to printer when order is billed' },
             ].map(({ key, label, desc }) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
