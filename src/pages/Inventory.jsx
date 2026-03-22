@@ -61,7 +61,7 @@ function InventoryForm({ item, categories, onSave, onClose }) {
     <div className="modal-overlay">
       <div className="modal-box modal-wide">
         <div className="modal-header">
-          <div className="modal-title">{item ? 'EDIT INVENTORY ITEM' : 'ADD INVENTORY ITEM'}</div>
+          <div className="modal-title">{item ? 'EDIT STOCK ITEM' : 'ADD STOCK ITEM'}</div>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div style={{ padding: '0 24px' }}>
@@ -352,7 +352,7 @@ export default function Inventory() {
   }, [])
 
   const deleteItem = async (id) => {
-    if (!confirm('Delete this inventory item?')) return
+    if (!confirm('Delete this stock item?')) return
     await window.api.deleteInventoryItem(id)
     toast('Deleted')
     reload()
@@ -370,7 +370,7 @@ export default function Inventory() {
   return (
     <div className="admin-page">
       <div className="admin-header">
-        <div className="admin-title">📦 INVENTORY MANAGER</div>
+        <div className="admin-title">📦 STOCK MANAGER</div>
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
           {tab === 'items' && (
             <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowForm(true) }}>
@@ -400,7 +400,7 @@ export default function Inventory() {
             <div className="search-bar">
               <input
                 className="search-input"
-                placeholder="Search inventory…"
+                placeholder="Search stock…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -445,7 +445,7 @@ export default function Inventory() {
                     {filtered.length === 0 ? (
                       <tr>
                         <td colSpan={8} style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
-                          {items.length === 0 ? 'No inventory items. Click "+ Add Item" to start.' : 'No results.'}
+                          {items.length === 0 ? 'No stock items. Click "+ Add Item" to start.' : 'No results.'}
                         </td>
                       </tr>
                     ) : filtered.map(item => {

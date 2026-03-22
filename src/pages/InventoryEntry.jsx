@@ -121,7 +121,7 @@ export default function InventoryEntry() {
         <div className="chk-header">
           <div>
             <div className="chk-title">STOCK ENTRY</div>
-            <div className="chk-sub">Quick inventory recording · {clock}</div>
+            <div className="chk-sub">Quick stock recording · {clock}</div>
           </div>
           <div className="chk-badge">
             <div className="chk-badge-lbl">Items</div>
@@ -148,7 +148,7 @@ export default function InventoryEntry() {
           <input
             className="search-input"
             style={{ width: '100%', boxSizing: 'border-box' }}
-            placeholder="Search inventory items…"
+            placeholder="Search stock items…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             autoFocus
@@ -161,7 +161,7 @@ export default function InventoryEntry() {
             <div style={{ color: 'var(--muted)', textAlign: 'center', paddingTop: 40 }}>Loading…</div>
           ) : filtered.length === 0 ? (
             <div style={{ color: 'var(--muted)', textAlign: 'center', paddingTop: 40 }}>
-              {allItems.length === 0 ? 'No inventory items. Add items in Inventory Manager first.' : 'No results for "' + search + '"'}
+              {allItems.length === 0 ? 'No stock items. Add items in Stock Manager first.' : 'No results for "' + search + '"'}
             </div>
           ) : (
             <div className="tiles">

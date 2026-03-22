@@ -296,7 +296,7 @@ export default function CategoryManager() {
           {[
             { key: 'menu_cats', label: '🍕 Menu Categories' },
             { key: 'subcats', label: '📁 Sub-categories' },
-            { key: 'inv_cats', label: '📦 Inventory Categories' },
+            { key: 'inv_cats', label: '📦 Stock Categories' },
             { key: 'users', label: '👥 Users' },
           ].map(t => (
             <div key={t.key} className={`tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
@@ -358,14 +358,14 @@ export default function CategoryManager() {
           </div>
         )}
 
-        {/* Inventory Categories */}
+        {/* Stock Categories */}
         {activeTab === 'inv_cats' && (
           <div className="card" style={{ padding: 0 }}>
             <table className="data-table">
               <thead><tr><th>Name</th><th>Status</th><th className="tr">Actions</th></tr></thead>
               <tbody>
                 {invCategories.length === 0 ? (
-                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: 30 }}>No inventory categories yet.</td></tr>
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: 30 }}>No stock categories yet.</td></tr>
                 ) : invCategories.map(c => (
                   <tr key={c.id}>
                     <td style={{ fontWeight: 600 }}>{c.name}</td>

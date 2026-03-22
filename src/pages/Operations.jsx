@@ -159,7 +159,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
   return (
     <div className="admin-page">
       <div className="admin-header">
-        <div className="admin-title">📊 OPERATIONS</div>
+        <div className="admin-title">📊 INVENTORY & REPORTS</div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
           {dayClosed ? (
             <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>⚠️ Day Closed</span>
@@ -472,7 +472,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
             {/* Billable inventory items section */}
             {billableItems.filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase())).length > 0 && (
               <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>🧾 Billable Stock Items</div>
+                <div className="card-title" style={{ marginBottom: 10 }}>🧾 Inventory Items</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
                   {billableItems
                     .filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase()))

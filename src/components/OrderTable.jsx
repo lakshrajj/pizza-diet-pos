@@ -105,7 +105,7 @@ export default function OrderTable({ onItemSelect, billableItems = [] }) {
         base_price: i.sale_price || 0,
         is_veg: 1,
         gst_percent: 0,
-        category_name: '🧾 Billable Stock',
+        category_name: '🧾 Inventory',
         _isInventory: true,
         _inventoryId: i.id,
       }))

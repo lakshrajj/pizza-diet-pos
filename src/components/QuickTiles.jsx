@@ -130,7 +130,7 @@ export default function QuickTiles({ onItemSelect, billableItems = [] }) {
               className={`cpill ${activeCat === 'billable' ? 'active' : ''}`}
               onClick={() => setActiveCat('billable')}
             >
-              🧾 Billable
+              🧾 Inventory
             </button>
           )}
         </div>

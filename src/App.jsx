@@ -16,10 +16,10 @@ import CustomerManager from './pages/CustomerManager'
 
 // Pages visible in topbar nav (non-management)
 const NAV_MAIN = [
-  { key: 'billing',    label: 'Billing',    icon: '🧾', staffAllowed: true  },
-  { key: 'inventory',  label: 'Inventory',  icon: '📦', staffAllowed: false },
-  { key: 'operations', label: 'Operations', icon: '📊', staffAllowed: true  },
-  { key: 'settings',   label: 'Settings',   icon: '🔧', staffAllowed: false },
+  { key: 'billing',    label: 'Billing',              icon: '🧾', staffAllowed: true  },
+  { key: 'inventory',  label: 'Stock',                icon: '📦', staffAllowed: false },
+  { key: 'operations', label: 'Inventory & Reports',  icon: '📊', staffAllowed: true  },
+  { key: 'settings',   label: 'Settings',             icon: '🔧', staffAllowed: false },
 ]
 
 // Management dropdown pages (admin-only)
