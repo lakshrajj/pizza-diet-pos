@@ -8,6 +8,8 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
   } = receiptData
 
   const isKitchen = _type === 'kitchen'
+  // Show only the counter part on screen/print e.g. "PD-260322-0001" → "#0001"
+  const shortNo = (() => { const p = String(orderNumber).split('-'); return `#${p[p.length - 1]}` })()
 
   const storeName   = settings?.store_name  || 'Pizza Diet'
   const storeAddr   = settings?.store_address || ''
@@ -38,7 +40,7 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
 
             <div style={{ borderTop: '1px dashed #999', margin: '7px 0' }} />
             <div className="rrow">
-              <span className="rb">Bill: {orderNumber}</span>
+              <span className="rb">Bill: {shortNo}</span>
               <span>{timeStr}</span>
             </div>
             <div className="rrow">
@@ -112,7 +114,7 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
 
             <div style={{ borderTop: '2px solid #111', margin: '7px 0' }} />
             <div className="rrow">
-              <span className="rb" style={{ fontSize: 13 }}>Bill: {orderNumber}</span>
+              <span className="rb" style={{ fontSize: 13 }}>Bill: {shortNo}</span>
               <span className="rb">{timeStr}</span>
             </div>
             <div className="rrow">

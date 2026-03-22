@@ -77,6 +77,12 @@ export default function Billing({ settings, dayClosed }) {
   }
 
   // ── CUSTOMER RECEIPT ───────────────────────────────────────────────────────
+  // Extract just the counter part for printing — e.g. "PD-260322-0001" → "#0001"
+  const shortBillNo = (orderNumber) => {
+    const parts = String(orderNumber).split('-')
+    return `#${parts[parts.length - 1]}`
+  }
+
   const buildCustomerReceipt = (orderNumber, orderData) => {
     const storeName = settings?.store_name || 'Pizza Diet'
     const storeAddress = settings?.store_address || ''
@@ -95,7 +101,7 @@ export default function Billing({ settings, dayClosed }) {
     if (storePhone)   text += center(`Ph: ${storePhone}`) + '\n'
     if (storeGstin)   text += center(`GSTIN: ${storeGstin}`) + '\n'
     text += '================================\n'
-    text += `Bill: ${orderNumber}    ${timeStr}\n`
+    text += `Bill: ${shortBillNo(orderNumber)}    ${timeStr}\n`
     text += `Date: ${dateStr}  ${typeLabel[orderType] || orderType}\n`
     if (customerName)  text += `Name: ${customerName}${customerPhone ? ` | ${customerPhone}` : ''}\n`
     if (!customerName && customerPhone) text += `Phone: ${customerPhone}\n`
@@ -142,7 +148,7 @@ export default function Billing({ settings, dayClosed }) {
     text += center('** KITCHEN ORDER **') + '\n'
     text += center(`\u{1F355} ${storeName}`) + '\n'
     text += '================================\n'
-    text += `Bill: ${orderNumber}    ${timeStr}\n`
+    text += `Bill: ${shortBillNo(orderNumber)}    ${timeStr}\n`
     text += `Date: ${dateStr}\n`
     text += `Type: ${typeLabel[orderType] || orderType}\n`
     if (customerName)  text += `Name: ${customerName}${customerPhone ? ` | ${customerPhone}` : ''}\n`
@@ -358,7 +364,7 @@ export default function Billing({ settings, dayClosed }) {
         <div className="chk-header">
           <div>
             <div className="chk-title">NEW CHECK</div>
-            <div className="chk-sub">{billNumber} · {typeLabel[orderType]}</div>
+            <div className="chk-sub">#{String(billNumber).split('-').pop()} · {typeLabel[orderType]}</div>
           </div>
           <div className="chk-badge">
             <div className="chk-badge-lbl">Total Items</div>
