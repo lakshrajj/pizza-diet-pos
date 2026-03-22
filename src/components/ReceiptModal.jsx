@@ -64,18 +64,37 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
             <div style={{ borderTop: '1px solid #ccc', margin: '4px 0' }} />
 
             {items.map((item, i) => {
-              const total = item.unitPrice * item.qty * (1 - (item.discountPct || 0) / 100)
+              const baseTotal = item.unitPrice * item.qty
+              const discAmt   = item.unitPrice * (item.discountQty || 0) * (item.discountPct || 0) / 100
+              const hasDisc   = discAmt > 0
               return (
-                <div key={i} style={{ marginBottom: 6 }}>
+                <div key={i} style={{ marginBottom: 8 }}>
+                  {/* Base item line */}
                   <div className="rrow">
-                    <span>{item.name}{item.variantName ? ` (${item.variantName})` : ''} ×{item.qty}</span>
-                    <span className="rb">₹{total.toFixed(2)}</span>
+                    <span style={{ fontWeight: 600 }}>
+                      {item.name}{item.variantName ? ` (${item.variantName})` : ''}{item.qty > 1 ? ` ×${item.qty}` : ''}
+                    </span>
+                    <span className="rb">₹{baseTotal.toFixed(2)}</span>
                   </div>
-                  {item.addons?.length > 0 && (
-                    <div style={{ fontSize: 10, paddingLeft: 8, color: '#555' }}>+ {item.addons.map(a => a.name).join(', ')}</div>
+
+                  {/* Each add-on as its own line with price */}
+                  {item.addons?.map((a, ai) => (
+                    <div key={ai} className="rrow" style={{ fontSize: 11, paddingLeft: 10, color: '#444' }}>
+                      <span>+ {a.name}{item.qty > 1 ? ` ×${item.qty}` : ''}</span>
+                      <span>₹{(a.price * item.qty).toFixed(2)}</span>
+                    </div>
+                  ))}
+
+                  {/* Discount line */}
+                  {hasDisc && (
+                    <div className="rrow" style={{ fontSize: 11, paddingLeft: 10, color: '#c05000' }}>
+                      <span>Disc {item.discountPct}% on {item.discountQty}</span>
+                      <span>-₹{discAmt.toFixed(2)}</span>
+                    </div>
                   )}
+
                   {item.specialNote && (
-                    <div style={{ fontSize: 10, paddingLeft: 8, fontStyle: 'italic', color: '#555' }}>* {item.specialNote}</div>
+                    <div style={{ fontSize: 10, paddingLeft: 10, fontStyle: 'italic', color: '#777' }}>* {item.specialNote}</div>
                   )}
                 </div>
               )
@@ -134,17 +153,17 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
             <div style={{ borderTop: '2px solid #111', margin: '7px 0' }} />
 
             {items.map((item, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
+              <div key={i} style={{ marginBottom: 10 }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>
                   {item.qty}×  {item.name}{item.variantName ? ` (${item.variantName})` : ''}
                 </div>
-                {item.addons?.length > 0 && (
-                  <div style={{ fontSize: 11, paddingLeft: 20, color: '#333' }}>
-                    + {item.addons.map(a => a.name).join(', ')}
+                {item.addons?.map((a, ai) => (
+                  <div key={ai} style={{ fontSize: 11, paddingLeft: 22, color: '#333' }}>
+                    + {a.name}
                   </div>
-                )}
+                ))}
                 {item.specialNote && (
-                  <div style={{ fontSize: 11, paddingLeft: 20, fontWeight: 700, color: '#c00' }}>
+                  <div style={{ fontSize: 11, paddingLeft: 22, fontWeight: 700, color: '#c00' }}>
                     ⚠ {item.specialNote}
                   </div>
                 )}
