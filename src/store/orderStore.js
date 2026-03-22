@@ -2,8 +2,19 @@ import { create } from 'zustand'
 
 let billCounter = 1
 
-function generateTempOrderNum() {
-  return `ORDER #${String(billCounter++).padStart(4, '0')}`
+// Helper: sum of addon prices for one line item
+function addonTotal(item) {
+  return (item.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+}
+
+// Effective price per unit = base + addons
+function effectiveUnit(item) {
+  return item.unitPrice + addonTotal(item)
+}
+
+// Discount amount for this line: discount_pct applied to discount_qty units
+function lineDiscount(item) {
+  return effectiveUnit(item) * (item.discountQty || 0) * (item.discountPct || 0) / 100
 }
 
 export const useOrderStore = create((set, get) => ({
@@ -27,12 +38,11 @@ export const useOrderStore = create((set, get) => ({
 
   addItem: (item) => {
     const items = get().items
-    // Check for duplicate by rowKey
     const existing = items.find(i => i.rowKey === item.rowKey)
     if (existing) {
       set({ items: items.map(i => i.rowKey === item.rowKey ? { ...i, qty: i.qty + 1 } : i) })
     } else {
-      set({ items: [...items, { ...item, qty: 1, discountPct: 0 }] })
+      set({ items: [...items, { ...item, qty: 1, discountPct: 0, discountQty: 0 }] })
     }
   },
 
@@ -45,16 +55,22 @@ export const useOrderStore = create((set, get) => ({
       items: get().items.map(i => {
         if (i.rowKey !== rowKey) return i
         const newQty = Math.max(1, i.qty + delta)
-        return { ...i, qty: newQty }
+        // Cap discountQty if qty decreased
+        const discountQty = Math.min(i.discountQty || 0, newQty)
+        return { ...i, qty: newQty, discountQty }
       })
     })
   },
 
-  setDiscount: (rowKey, pct) => {
+  // pct = discount percent, qty = how many items get the discount
+  setDiscount: (rowKey, pct, qty) => {
     set({
-      items: get().items.map(i =>
-        i.rowKey === rowKey ? { ...i, discountPct: Math.min(100, Math.max(0, parseFloat(pct) || 0)) } : i
-      )
+      items: get().items.map(i => {
+        if (i.rowKey !== rowKey) return i
+        const discountPct = Math.min(100, Math.max(0, parseFloat(pct) || 0))
+        const discountQty = Math.min(i.qty, Math.max(0, parseInt(qty) || 0))
+        return { ...i, discountPct, discountQty }
+      })
     })
   },
 
@@ -88,6 +104,7 @@ export const useOrderStore = create((set, get) => ({
       qty: oi.qty,
       unitPrice: oi.unit_price,
       discountPct: oi.discount_pct || 0,
+      discountQty: oi.discount_qty || 0,
       gstPct: oi.gst_pct || 0,
       isVeg: true,
     }))
@@ -104,18 +121,20 @@ export const useOrderStore = create((set, get) => ({
     set({ lastBilledOrder: order, lastBilledOrderNumber: number })
   },
 
-  // Computed values
+  // ── Computed values ────────────────────────────────────────────────────────
+  // Subtotal = sum of (base + addons) × qty, before any discount
   getSubtotal: () => {
-    return get().items.reduce((sum, i) => sum + i.unitPrice * i.qty, 0)
+    return get().items.reduce((sum, i) => sum + effectiveUnit(i) * i.qty, 0)
   },
 
+  // Total discount = sum of discounted amounts across all items
   getTotalDiscount: () => {
-    return get().items.reduce((sum, i) => sum + (i.unitPrice * i.qty * (i.discountPct / 100)), 0)
+    return get().items.reduce((sum, i) => sum + lineDiscount(i), 0)
   },
 
   getTotalGST: () => {
     return get().items.reduce((sum, i) => {
-      const taxable = i.unitPrice * i.qty * (1 - (i.discountPct / 100))
+      const taxable = effectiveUnit(i) * i.qty - lineDiscount(i)
       return sum + taxable * ((i.gstPct || 0) / 100)
     }, 0)
   },

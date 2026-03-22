@@ -328,6 +328,10 @@ function runMigrations() {
   try { sqlJsDb.run('ALTER TABLE inventory_items ADD COLUMN is_billable INTEGER DEFAULT 0') } catch (_) {}
   // v1.2 – price for billable items
   try { sqlJsDb.run('ALTER TABLE inventory_items ADD COLUMN sale_price REAL DEFAULT 0') } catch (_) {}
+  // v1.3 – N-item discount: how many units get the discount_pct
+  try { sqlJsDb.run('ALTER TABLE order_items ADD COLUMN discount_qty INTEGER DEFAULT 0') } catch (_) {}
+  // v1.3 – addon_total stored separately from base unit_price
+  try { sqlJsDb.run('ALTER TABLE order_items ADD COLUMN addon_total REAL DEFAULT 0') } catch (_) {}
 }
 
 function seedDefaults() {
@@ -902,14 +906,15 @@ ipcMain.handle('order:create', (_, data) => {
 
     const itemStmt = db.prepare(`
       INSERT INTO order_items (order_id, menu_item_id, item_name, variant_name, variant_desc, qty, unit_price,
-        discount_pct, gst_pct, addons_json, special_note, line_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        discount_pct, discount_qty, addon_total, gst_pct, addons_json, special_note, line_total)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     d.items.forEach(item => {
+      const addonTotal = (item.addons || []).reduce((s, a) => s + (a.price || 0), 0)
       itemStmt.run(orderId, item.menu_item_id, item.item_name, item.variant_name || '', item.variant_desc || '',
-        item.qty, item.unit_price, item.discount_pct || 0, item.gst_pct || 0,
-        JSON.stringify(item.addons || []), item.special_note || '', item.line_total)
+        item.qty, item.unit_price, item.discount_pct || 0, item.discount_qty || 0, addonTotal,
+        item.gst_pct || 0, JSON.stringify(item.addons || []), item.special_note || '', item.line_total)
     })
 
     // Auto deduct ingredients for menu items

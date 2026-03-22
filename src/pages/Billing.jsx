@@ -111,11 +111,26 @@ export default function Billing({ settings, dayClosed }) {
     text += '--------------------------------\n'
 
     orderData.items.forEach(item => {
-      const total = item.unitPrice * item.qty * (1 - (item.discountPct || 0) / 100)
-      const label = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}`
-      text += `${label.slice(0, 24).padEnd(24)} \u20B9${total.toFixed(0)}\n`
-      if (item.addons?.length) text += `  + ${item.addons.map(a => a.name).join(', ')}\n`
-      if (item.specialNote)    text += `  * ${item.specialNote}\n`
+      const addonSum = (item.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+      const effUnit  = item.unitPrice + addonSum
+      const discAmt  = effUnit * (item.discountQty || 0) * (item.discountPct || 0) / 100
+      const total    = effUnit * item.qty - discAmt
+      const label    = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}${item.qty > 1 ? ` ×${item.qty}` : ''}`
+      text += `${label.slice(0, 24).padEnd(24)} \u20B9${item.unitPrice.toFixed(0)}\n`
+      // Add-ons as separate lines
+      if (item.addons?.length) {
+        item.addons.forEach(a => {
+          const aLabel = `  + ${a.name}`
+          const aAmt   = (a.price * item.qty).toFixed(0)
+          text += `${aLabel.slice(0, 24).padEnd(24)} \u20B9${aAmt}\n`
+        })
+      }
+      // Discount line
+      if ((item.discountPct || 0) > 0 && (item.discountQty || 0) > 0) {
+        const dLabel = `  Disc ${item.discountPct}% on ${item.discountQty}`
+        text += `${dLabel.padEnd(24)}-\u20B9${discAmt.toFixed(0)}\n`
+      }
+      if (item.specialNote) text += `  * ${item.specialNote}\n`
     })
 
     text += '--------------------------------\n'
@@ -159,8 +174,10 @@ export default function Billing({ settings, dayClosed }) {
     orderData.items.forEach(item => {
       const label = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}`
       text += `${item.qty}x  ${label}\n`
-      if (item.addons?.length) text += `    + ${item.addons.map(a => a.name).join(', ')}\n`
-      if (item.specialNote)    text += `    *** ${item.specialNote} ***\n`
+      if (item.addons?.length) {
+        item.addons.forEach(a => { text += `      + ${a.name}\n` })
+      }
+      if (item.specialNote) text += `    *** ${item.specialNote} ***\n`
     })
 
     text += '================================\n'
@@ -209,6 +226,9 @@ export default function Billing({ settings, dayClosed }) {
       items: items.map(i => {
         const isInv = String(i.menuItemId).startsWith('inv_')
         const inventoryId = isInv ? parseInt(String(i.menuItemId).replace('inv_', '')) : null
+        const addonSum = (i.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+        const effUnit  = i.unitPrice + addonSum
+        const discAmt  = effUnit * (i.discountQty || 0) * (i.discountPct || 0) / 100
         return {
           menu_item_id: isInv ? null : (parseInt(i.menuItemId) || null),
           inventory_item_id: inventoryId,
@@ -218,10 +238,11 @@ export default function Billing({ settings, dayClosed }) {
           qty: i.qty,
           unit_price: i.unitPrice,
           discount_pct: i.discountPct || 0,
+          discount_qty: i.discountQty || 0,
           gst_pct: i.gstPct || 0,
           addons: i.addons || [],
           special_note: i.specialNote || '',
-          line_total: i.unitPrice * i.qty * (1 - (i.discountPct || 0) / 100),
+          line_total: effUnit * i.qty - discAmt,
         }
       }),
     }
@@ -276,14 +297,20 @@ export default function Billing({ settings, dayClosed }) {
       customer_address: customerAddress,
       subtotal, total_discount: discount, total_gst: gst, grand_total: grandTotal,
       created_by: user?.id,
-      items: items.map(i => ({
-        menu_item_id: i.menuItemId,
-        item_name: i.name + (i.variantName ? ` (${i.variantName})` : ''),
-        variant_name: i.variantName || '', variant_desc: i.variantDesc || '',
-        qty: i.qty, unit_price: i.unitPrice, discount_pct: i.discountPct || 0,
-        gst_pct: i.gstPct || 0, addons: i.addons || [], special_note: i.specialNote || '',
-        line_total: i.unitPrice * i.qty * (1 - (i.discountPct || 0) / 100),
-      })),
+      items: items.map(i => {
+        const addonSum = (i.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+        const effUnit  = i.unitPrice + addonSum
+        const discAmt  = effUnit * (i.discountQty || 0) * (i.discountPct || 0) / 100
+        return {
+          menu_item_id: i.menuItemId,
+          item_name: i.name + (i.variantName ? ` (${i.variantName})` : ''),
+          variant_name: i.variantName || '', variant_desc: i.variantDesc || '',
+          qty: i.qty, unit_price: i.unitPrice, discount_pct: i.discountPct || 0,
+          discount_qty: i.discountQty || 0,
+          gst_pct: i.gstPct || 0, addons: i.addons || [], special_note: i.specialNote || '',
+          line_total: effUnit * i.qty - discAmt,
+        }
+      }),
     })
 
     if (res.success) { clearOrder(); toast('Order held ✓') }

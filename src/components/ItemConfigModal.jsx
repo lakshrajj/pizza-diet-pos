@@ -52,10 +52,11 @@ export default function ItemConfigModal({ item, onAdd, onClose }) {
   const handleAdd = () => {
     if (hasVariants && !selectedVariant) return
 
-    const unitPrice = calcTotal()
+    // unitPrice = base/variant price only. Addons are separate line rows.
+    const unitPrice = hasVariants && selectedVariant ? selectedVariant.price : (item.base_price || 0)
     const addonList = [...selectedAddons].map(id => {
       const a = addons.find(x => x.id === id)
-      return { id, name: a?.name || '', price: getAddonPrice(a) }
+      return { id, name: a?.name || '', emoji: a?.emoji || '', price: getAddonPrice(a) }
     })
 
     // Build unique row key: menuItemId + variantName + sorted addon IDs
