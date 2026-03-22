@@ -69,8 +69,7 @@ function DiscountPopup({ item, onApply, onClose }) {
 
       {pct > 0 && qty > 0 && (
         <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 10, textAlign: 'center', background: 'var(--surface2)', padding: '5px 8px', borderRadius: 6 }}>
-          Save ₹{((item.unitPrice + (item.addons || []).reduce((s, a) => s + a.price, 0)) * qty * pct / 100).toFixed(0)}
-          {' '}on {qty} item{qty > 1 ? 's' : ''}
+          Save ₹{(item.unitPrice * qty * pct / 100).toFixed(0)} on {qty} item{qty > 1 ? 's' : ''}
         </div>
       )}
 
@@ -242,10 +241,9 @@ export default function OrderTable({ onItemSelect, billableItems = [] }) {
           </thead>
           <tbody>
             {items.map((item, i) => {
-              const addonSum = (item.addons || []).reduce((s, a) => s + (a.price || 0), 0)
-              const effUnit  = item.unitPrice + addonSum
-              const discAmt  = effUnit * (item.discountQty || 0) * (item.discountPct || 0) / 100
-              const lineTotal = Math.round((effUnit * item.qty - discAmt) * 100) / 100
+              // Discount applies to base item price only — add-ons are always full price
+              const discAmt  = item.unitPrice * (item.discountQty || 0) * (item.discountPct || 0) / 100
+              const lineTotal = Math.round((item.unitPrice * item.qty - discAmt) * 100) / 100
               const hasDisc  = (item.discountPct || 0) > 0 && (item.discountQty || 0) > 0
 
               return (

@@ -12,9 +12,9 @@ function effectiveUnit(item) {
   return item.unitPrice + addonTotal(item)
 }
 
-// Discount amount for this line: discount_pct applied to discount_qty units
+// Discount applies to base item price only — add-ons are always full price
 function lineDiscount(item) {
-  return effectiveUnit(item) * (item.discountQty || 0) * (item.discountPct || 0) / 100
+  return item.unitPrice * (item.discountQty || 0) * (item.discountPct || 0) / 100
 }
 
 export const useOrderStore = create((set, get) => ({
@@ -134,7 +134,8 @@ export const useOrderStore = create((set, get) => ({
 
   getTotalGST: () => {
     return get().items.reduce((sum, i) => {
-      const taxable = effectiveUnit(i) * i.qty - lineDiscount(i)
+      // Taxable = base after discount + addons at full price
+      const taxable = (i.unitPrice * i.qty - lineDiscount(i)) + addonTotal(i) * i.qty
       return sum + taxable * ((i.gstPct || 0) / 100)
     }, 0)
   },
