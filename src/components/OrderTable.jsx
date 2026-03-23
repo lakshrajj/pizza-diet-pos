@@ -143,7 +143,7 @@ function EditItemModal({ item, onSave, onClose }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function OrderTable({ onItemSelect, billableItems = [] }) {
-  const { items, removeItem, changeQty, setDiscount, updateItem } = useOrderStore()
+  const { items, removeItem, changeQty, changeAddonQty, setDiscount, updateItem } = useOrderStore()
   const { searchItems } = useMenuStore()
 
   const [query, setQuery]       = useState('')
@@ -307,24 +307,41 @@ export default function OrderTable({ onItemSelect, billableItems = [] }) {
                     </td>
                   </tr>
 
-                  {/* Add-on sub-rows */}
-                  {(item.addons || []).map(a => (
-                    <tr key={`${item.rowKey}_a_${a.id}`} style={{ background: 'var(--surface2)', opacity: 0.92 }}>
-                      <td className="td-num" style={{ color: 'var(--muted)', fontSize: 10 }}>↳</td>
-                      <td className="td-name" style={{ paddingLeft: 18 }}>
-                        <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
-                          {a.emoji ? `${a.emoji} ` : '+ '}{a.name}
-                        </span>
-                      </td>
-                      <td className="td-qty" style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>×{item.qty}</td>
-                      <td className="td-price" style={{ fontSize: 12, color: 'var(--muted)' }}>₹{a.price}</td>
-                      <td></td>
-                      <td className="td-total" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        ₹{(a.price * item.qty).toFixed(2)}
-                      </td>
-                      <td></td>
-                    </tr>
-                  ))}
+                  {/* Add-on sub-rows — each addon has its own independent qty */}
+                  {(item.addons || []).map(a => {
+                    const aQty = a.qty || 1
+                    return (
+                      <tr key={`${item.rowKey}_a_${a.id}`} style={{ background: 'rgba(99,190,123,0.07)', borderLeft: '3px solid var(--addon-accent, #3cb371)' }}>
+                        <td className="td-num" style={{ color: 'var(--addon-accent, #3cb371)', fontSize: 11, fontWeight: 700 }}>+</td>
+                        <td className="td-name" style={{ paddingLeft: 14 }}>
+                          <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
+                            {a.emoji ? `${a.emoji} ` : ''}{a.name}
+                          </span>
+                        </td>
+                        <td className="td-qty">
+                          <div className="qctrl">
+                            <button
+                              className="qbtn"
+                              style={{ width: 22, height: 22, fontSize: 14, background: 'rgba(99,190,123,0.15)', borderColor: 'rgba(99,190,123,0.4)', color: '#2e8b57' }}
+                              onClick={() => changeAddonQty(item.rowKey, a.id, -1)}
+                            >−</button>
+                            <span className="qval" style={{ fontSize: 13 }}>{pad(aQty)}</span>
+                            <button
+                              className="qbtn"
+                              style={{ width: 22, height: 22, fontSize: 14, background: 'rgba(99,190,123,0.15)', borderColor: 'rgba(99,190,123,0.4)', color: '#2e8b57' }}
+                              onClick={() => changeAddonQty(item.rowKey, a.id, 1)}
+                            >+</button>
+                          </div>
+                        </td>
+                        <td className="td-price" style={{ fontSize: 13, color: 'var(--text)' }}>₹{a.price}</td>
+                        <td></td>
+                        <td className="td-total" style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>
+                          ₹{(a.price * aQty).toFixed(2)}
+                        </td>
+                        <td></td>
+                      </tr>
+                    )
+                  })}
 
                   {/* Discount summary row */}
                   {hasDisc && (

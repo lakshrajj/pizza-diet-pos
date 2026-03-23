@@ -1,59 +1,86 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { useOrderStore } from '../store/orderStore'
-import { useMenuStore } from '../store/menuStore'
 import { useToast } from '../components/Toast'
 import ReceiptModal from '../components/ReceiptModal'
 
-function formatCurrency(n) {
-  return `₹${(n || 0).toFixed(2)}`
-}
+function fmt(n) { return `₹${(n || 0).toFixed(2)}` }
+function fmtQty(n) { return (n || 0).toFixed(2).replace(/\.00$/, '') }
+function getToday() { return new Date().toISOString().slice(0, 10) }
 
-function getToday() {
-  return new Date().toISOString().slice(0, 10)
+// ── Date filter bar ────────────────────────────────────────────────────────
+function DateFilter({ from, to, onFrom, onTo, onApply, loading }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
+      <div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>From</div>
+        <input type="date" className="form-input" value={from} onChange={e => onFrom(e.target.value)} style={{ width: 148 }} />
+      </div>
+      <div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>To</div>
+        <input type="date" className="form-input" value={to} onChange={e => onTo(e.target.value)} style={{ width: 148 }} />
+      </div>
+      {['today', 'week', 'month'].map(p => (
+        <button key={p} className="btn btn-outline btn-sm"
+          onClick={() => {
+            const now = new Date()
+            if (p === 'today') { const d = getToday(); onFrom(d); onTo(d) }
+            else if (p === 'week') {
+              const d = new Date(now); d.setDate(d.getDate() - 6)
+              onFrom(d.toISOString().slice(0, 10)); onTo(getToday())
+            } else {
+              onFrom(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)); onTo(getToday())
+            }
+          }}
+          style={{ alignSelf: 'flex-end' }}
+        >
+          {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : 'This Month'}
+        </button>
+      ))}
+      <button className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-end' }} onClick={onApply} disabled={loading}>
+        {loading ? '…' : 'Apply'}
+      </button>
+    </div>
+  )
 }
 
 export default function Operations({ settings, onDayClose, onDayReopen }) {
   const toast = useToast()
   const user = useAuthStore(s => s.user)
-  const { loadHeldOrder, clearOrder } = useOrderStore()
-  const { items: menuItems, loadAll: loadMenu } = useMenuStore()
+  const { loadHeldOrder } = useOrderStore()
 
-  const [activeTab, setActiveTab] = useState('dashboard')
-  const [report, setReport] = useState(null)
-  const [orders, setOrders] = useState([])
-  const [heldOrders, setHeldOrders] = useState([])
+  const [activeTab, setActiveTab] = useState('sales')
   const [dateFrom, setDateFrom] = useState(getToday())
   const [dateTo, setDateTo] = useState(getToday())
   const [loading, setLoading] = useState(false)
-  const [searchBill, setSearchBill] = useState('')
-  const [foundOrder, setFoundOrder] = useState(null)
+
+  // Sales panel data
+  const [report, setReport]           = useState(null)
+  const [catReport, setCatReport]     = useState(null)   // { groups, grand_qty, grand_revenue }
+  const [orders, setOrders]           = useState([])
+
+  // Stock panel data
+  const [stockConsumed, setStockConsumed] = useState([])
+
+  // Other tabs
+  const [heldOrders, setHeldOrders]   = useState([])
+  const [searchBill, setSearchBill]   = useState('')
+  const [foundOrder, setFoundOrder]   = useState(null)
   const [showReceipt, setShowReceipt] = useState(null)
   const [dayCloseData, setDayCloseData] = useState(null)
 
-  // Quick Add config state
-  const [qaFeatured, setQaFeatured]       = useState([])   // ['menu_15', 'inv_5', …]
-  const [billableItems, setBillableItems] = useState([])
-  const [qaSearch, setQaSearch]           = useState('')
-  const [qaSaving, setQaSaving]           = useState(false)
-
-  useEffect(() => { loadReport() }, [])
+  useEffect(() => { loadReport(); loadDayClose() }, [])
   useEffect(() => { if (activeTab === 'held') loadHeld() }, [activeTab])
-  useEffect(() => { loadDayClose() }, [])
-  useEffect(() => {
-    if (activeTab === 'quickadd') {
-      loadMenu()
-      window.api.getBillableInventory().then(b => setBillableItems(b || []))
-      window.api.getQuickAddConfig().then(ids => setQaFeatured(ids || []))
-    }
-  }, [activeTab])
 
   const loadReport = async () => {
     setLoading(true)
-    const r = await window.api.getDailyReport(dateFrom, dateTo)
-    const o = await window.api.getOrders(dateFrom, dateTo)
-    setReport(r)
-    setOrders(o)
+    const [r, o, cat, stock] = await Promise.all([
+      window.api.getDailyReport(dateFrom, dateTo),
+      window.api.getOrders(dateFrom, dateTo),
+      window.api.getByCategoryItems(dateFrom, dateTo),
+      window.api.getStockConsumed(dateFrom, dateTo),
+    ])
+    setReport(r); setOrders(o); setCatReport(cat); setStockConsumed(stock)
     setLoading(false)
   }
 
@@ -88,70 +115,36 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
       const res = await window.api.searchOrdersByPhone(searchBill.trim())
       order = res?.[0] || null
     }
-    if (order) {
-      setFoundOrder(order)
-    } else {
-      toast('Order not found')
-    }
+    if (order) setFoundOrder(order)
+    else toast('Order not found')
   }
 
   const handleDayClose = async () => {
     if (!confirm('Close the day? Billing will be locked until reopened.')) return
     const res = await window.api.closDay(user?.id)
-    if (res.success) {
-      toast('Day closed ✓')
-      onDayClose()
-      loadDayClose()
-    } else {
-      toast('Error: ' + res.error)
-    }
+    if (res.success) { toast('Day closed ✓'); onDayClose(); loadDayClose() }
+    else toast('Error: ' + res.error)
   }
 
   const handleReopen = async () => {
     await window.api.reopenDay()
-    toast('Day reopened')
-    onDayReopen()
-    loadDayClose()
+    toast('Day reopened'); onDayReopen(); loadDayClose()
   }
 
   const showOrderReceipt = async (order) => {
     const full = await window.api.getOrderById(order.id)
     if (!full) { toast('Order not found'); return }
     setShowReceipt({
-      orderNumber: full.order_number,
-      orderType: full.order_type,
-      customerName: full.customer_name,
-      customerPhone: full.customer_phone,
+      orderNumber: full.order_number, orderType: full.order_type,
+      customerName: full.customer_name, customerPhone: full.customer_phone,
       items: full.items.map(i => ({
-        name: i.item_name,
-        variantName: i.variant_name || '',
-        addons: JSON.parse(i.addons_json || '[]'),
-        specialNote: i.special_note || '',
-        qty: i.qty,
-        unitPrice: i.unit_price,
-        discountPct: i.discount_pct || 0,
-        gstPct: i.gst_pct || 0,
+        name: i.item_name, variantName: i.variant_name || '',
+        addons: JSON.parse(i.addons_json || '[]'), specialNote: i.special_note || '',
+        qty: i.qty, unitPrice: i.unit_price, discountPct: i.discount_pct || 0, gstPct: i.gst_pct || 0,
       })),
-      subtotal: full.subtotal,
-      discount: full.total_discount,
-      gst: full.total_gst,
-      grandTotal: full.grand_total,
-      settings,
-      billedAt: full.billed_at,
+      subtotal: full.subtotal, discount: full.total_discount, gst: full.total_gst,
+      grandTotal: full.grand_total, settings, billedAt: full.billed_at,
     })
-  }
-
-  const toggleQaItem = (id) => {
-    setQaFeatured(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    )
-  }
-
-  const saveQaConfig = async () => {
-    setQaSaving(true)
-    await window.api.saveQuickAddConfig(qaFeatured)
-    setQaSaving(false)
-    toast('Quick Add layout saved ✓')
   }
 
   const dayClosed = settings?.day_closed === 'true'
@@ -159,13 +152,12 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
   return (
     <div className="admin-page">
       <div className="admin-header">
-        <div className="admin-title">📊 INVENTORY & REPORTS</div>
+        <div className="admin-title">📊 INVENTORY & SALES</div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
-          {dayClosed ? (
-            <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>⚠️ Day Closed</span>
-          ) : (
-            <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✅ Day Open</span>
-          )}
+          {dayClosed
+            ? <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>⚠️ Day Closed</span>
+            : <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✅ Day Open</span>
+          }
           {user?.role === 'admin' && (
             dayClosed
               ? <button className="btn btn-outline btn-sm" onClick={handleReopen}>Reopen Day</button>
@@ -176,124 +168,216 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
 
       <div className="admin-body">
         <div className="tab-bar">
-          {['dashboard', 'orders', 'held', 'reprint', 'quickadd'].map(tab => (
-            <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-              {{ dashboard: '📊 Dashboard', orders: '🧾 Orders', held: '⏸ Held Orders', reprint: '🖨 Reprint', quickadd: '⭐ Quick Add' }[tab]}
+          {[
+            { key: 'sales',   label: '📊 Sales & Stock' },
+            { key: 'orders',  label: '🧾 Orders' },
+            { key: 'held',    label: '⏸ Held Orders' },
+            { key: 'reprint', label: '🖨 Reprint' },
+          ].map(t => (
+            <div key={t.key} className={`tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
+              {t.label}
             </div>
           ))}
         </div>
 
-        {/* DASHBOARD */}
-        {activeTab === 'dashboard' && (
+        {/* ── SALES & STOCK — two-panel ──────────────────────────────────── */}
+        {activeTab === 'sales' && (
           <>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ marginBottom: 4 }}>From</label>
-                <input type="date" className="form-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 150 }} />
+            <DateFilter from={dateFrom} to={dateTo} onFrom={setDateFrom} onTo={setDateTo} onApply={loadReport} loading={loading} />
+
+            {/* Summary bar */}
+            {report?.summary && (
+              <div className="stat-grid" style={{ marginBottom: 16 }}>
+                <div className="stat-card">
+                  <div className="stat-label">Total Orders</div>
+                  <div className="stat-value">{report.summary.total_orders || 0}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Revenue</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{fmt(report.summary.total_revenue)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Avg. Order</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{fmt(report.summary.avg_order_value)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">GST Collected</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{fmt(report.summary.total_gst)}</div>
+                  <div className="stat-sub">Disc: {fmt(report.summary.total_discount)}</div>
+                </div>
               </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ marginBottom: 4 }}>To</label>
-                <input type="date" className="form-input" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 150 }} />
-              </div>
-              <button className="btn btn-primary btn-sm" style={{ marginTop: 20 }} onClick={loadReport}>
-                Apply
-              </button>
-            </div>
+            )}
 
             {loading ? (
               <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>Loading report…</div>
-            ) : report ? (
-              <>
-                <div className="stat-grid">
-                  <div className="stat-card">
-                    <div className="stat-label">Total Orders</div>
-                    <div className="stat-value">{report.summary?.total_orders || 0}</div>
-                    <div className="stat-sub">For selected period</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+
+                {/* ── LEFT — Top Selling by Category ────────────────────── */}
+                <div className="card" style={{ padding: 0 }}>
+                  <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>📈 Top Selling — By Category</div>
+                    {catReport && (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {catReport.grand_qty} items · {fmt(catReport.grand_revenue)}
+                      </div>
+                    )}
                   </div>
-                  <div className="stat-card">
-                    <div className="stat-label">Total Revenue</div>
-                    <div className="stat-value" style={{ fontSize: 24 }}>{formatCurrency(report.summary?.total_revenue)}</div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-label">Avg. Order Value</div>
-                    <div className="stat-value" style={{ fontSize: 24 }}>{formatCurrency(report.summary?.avg_order_value)}</div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-label">GST Collected</div>
-                    <div className="stat-value" style={{ fontSize: 24 }}>{formatCurrency(report.summary?.total_gst)}</div>
-                    <div className="stat-sub">Discount: {formatCurrency(report.summary?.total_discount)}</div>
-                  </div>
+
+                  {!catReport || catReport.groups.length === 0 ? (
+                    <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No sales data for this period</div>
+                  ) : (
+                    <div style={{ maxHeight: 520, overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface2)', position: 'sticky', top: 0 }}>
+                            <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Item</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', width: 55 }}>Qty</th>
+                            <th style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', width: 90 }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {catReport.groups.map((grp, gi) => (
+                            <>
+                              {/* Category header row */}
+                              <tr key={`grp_${gi}`} style={{ background: 'var(--surface2)' }}>
+                                <td colSpan={3} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: 'var(--accent)', letterSpacing: '0.04em' }}>
+                                  ▶ {grp.cat_emoji} {grp.category.toUpperCase()}
+                                </td>
+                              </tr>
+
+                              {/* Item rows */}
+                              {grp.items.map((item, ii) => (
+                                <tr key={`item_${gi}_${ii}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '7px 14px 7px 24px', color: 'var(--text)' }}>{item.item_name}</td>
+                                  <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>{item.total_qty}</td>
+                                  <td style={{ padding: '7px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text)' }}>{fmt(item.total_revenue)}</td>
+                                </tr>
+                              ))}
+
+                              {/* Group total */}
+                              <tr key={`gtot_${gi}`} style={{ background: 'rgba(var(--accent-rgb,255,107,0),0.06)', borderBottom: '2px solid var(--border)' }}>
+                                <td style={{ padding: '6px 14px 6px 24px', fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Group Total</td>
+                                <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700, fontSize: 12, fontFamily: 'monospace' }}>{grp.total_qty}</td>
+                                <td style={{ padding: '6px 14px', textAlign: 'right', fontWeight: 700, fontSize: 12, fontFamily: 'monospace', color: 'var(--accent)' }}>{fmt(grp.total_revenue)}</td>
+                              </tr>
+                            </>
+                          ))}
+
+                          {/* Grand total */}
+                          <tr style={{ background: 'var(--surface2)', borderTop: '2px solid var(--border)' }}>
+                            <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: 13 }}>GRAND TOTAL</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13, fontFamily: 'monospace' }}>{catReport.grand_qty}</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontSize: 14, fontFamily: 'monospace', color: 'var(--accent)' }}>{fmt(catReport.grand_revenue)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  {/* Category breakdown */}
-                  <div className="card">
-                    <div className="card-title">Category Wise Sales</div>
-                    {report.byCategory?.length === 0 ? (
-                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
-                    ) : report.byCategory?.map((c, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < report.byCategory.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}>
-                        <span style={{ fontWeight: 600 }}>{c.category}</span>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatCurrency(c.revenue)}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.qty} items</div>
-                        </div>
+                {/* ── RIGHT — Stock Consumed ─────────────────────────────── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* Order type breakdown */}
+                  {report?.byType?.length > 0 && (
+                    <div className="card" style={{ padding: 0 }}>
+                      <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 13 }}>
+                        🛵 Sales by Order Type
                       </div>
-                    ))}
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface2)' }}>
+                            <th style={{ padding: '7px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Type</th>
+                            <th style={{ padding: '7px 10px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', width: 70 }}>Orders</th>
+                            <th style={{ padding: '7px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', width: 100 }}>Revenue</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.byType.map((t, i) => (
+                            <tr key={i} style={{ borderBottom: i < report.byType.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                              <td style={{ padding: '8px 14px', fontWeight: 600, textTransform: 'capitalize' }}>
+                                {{ dine: '🪑 Dine-In', takeaway: '🥡 Takeaway', delivery: '🛵 Delivery' }[t.order_type] || t.order_type}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{t.count}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent)' }}>{fmt(t.revenue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Stock consumed */}
+                  <div className="card" style={{ padding: 0 }}>
+                    <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>📦 Stock Consumed</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Recipe deductions from sales</div>
+                    </div>
+
+                    {stockConsumed.length === 0 ? (
+                      <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No stock deductions for this period</div>
+                    ) : (
+                      <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: 'var(--surface2)', position: 'sticky', top: 0 }}>
+                              <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Stock Item</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', width: 90 }}>Consumed</th>
+                              <th style={{ padding: '8px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', width: 90 }}>In Stock</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stockConsumed.map((s, i) => (
+                              <tr key={i} style={{ borderBottom: i < stockConsumed.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                                <td style={{ padding: '8px 14px', fontWeight: 600 }}>{s.item_name}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#c05000', fontWeight: 700 }}>
+                                  −{fmtQty(s.total_consumed)} {s.base_unit}
+                                </td>
+                                <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: s.current_stock < 0 ? 'var(--red)' : s.current_stock < 10 ? '#e67e22' : 'var(--green)' }}>
+                                  {fmtQty(s.current_stock)} {s.base_unit}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Top items */}
-                  <div className="card">
-                    <div className="card-title">Top 10 Items</div>
-                    {report.topItems?.length === 0 ? (
-                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
-                    ) : report.topItems?.map((item, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < report.topItems.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 12 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: 'var(--muted)', fontWeight: 700, fontSize: 11, minWidth: 20 }}>#{i + 1}</span>
-                          <span style={{ fontWeight: 600 }}>{item.item_name}</span>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 700 }}>{item.total_qty} sold</div>
-                          <div style={{ color: 'var(--accent)', fontSize: 11 }}>{formatCurrency(item.total_revenue)}</div>
-                        </div>
+                  {/* Top 10 items (compact) */}
+                  {report?.topItems?.length > 0 && (
+                    <div className="card" style={{ padding: 0 }}>
+                      <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 13 }}>
+                        🏆 Top 10 Items
                       </div>
-                    ))}
-                  </div>
-
-                  {/* By order type */}
-                  <div className="card">
-                    <div className="card-title">Order Types</div>
-                    {report.byType?.map((t, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < report.byType.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}>
-                        <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{t.order_type}</span>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 700 }}>{formatCurrency(t.revenue)}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t.count} orders</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <tbody>
+                          {report.topItems.map((item, i) => (
+                            <tr key={i} style={{ borderBottom: i < report.topItems.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                              <td style={{ padding: '7px 14px', width: 28 }}>
+                                <span style={{ fontWeight: 800, color: i < 3 ? 'var(--accent)' : 'var(--muted)', fontSize: 12 }}>#{i + 1}</span>
+                              </td>
+                              <td style={{ padding: '7px 6px', fontWeight: 600 }}>{item.item_name}</td>
+                              <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, width: 55 }}>{item.total_qty}</td>
+                              <td style={{ padding: '7px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--accent)', fontWeight: 700, width: 90 }}>{fmt(item.total_revenue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              </>
-            ) : null}
+
+              </div>
+            )}
           </>
         )}
 
-        {/* ORDERS */}
+        {/* ── ORDERS ─────────────────────────────────────────────────────── */}
         {activeTab === 'orders' && (
           <>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'flex-end' }}>
-              <div>
-                <div className="form-label">From</div>
-                <input type="date" className="form-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 150 }} />
-              </div>
-              <div>
-                <div className="form-label">To</div>
-                <input type="date" className="form-input" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 150 }} />
-              </div>
-              <button className="btn btn-primary btn-sm" onClick={loadReport}>Apply</button>
-            </div>
+            <DateFilter from={dateFrom} to={dateTo} onFrom={setDateFrom} onTo={setDateTo} onApply={loadReport} loading={loading} />
             <div className="card" style={{ padding: 0 }}>
               <table className="data-table">
                 <thead>
@@ -315,7 +399,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
                       <td>{o.customer_name || '—'} {o.customer_phone ? `· ${o.customer_phone}` : ''}</td>
                       <td style={{ textTransform: 'capitalize' }}>{o.order_type}</td>
                       <td style={{ fontSize: 12 }}>{o.billed_at ? new Date(o.billed_at).toLocaleString('en-IN') : '—'}</td>
-                      <td className="tr" style={{ fontWeight: 700 }}>{formatCurrency(o.grand_total)}</td>
+                      <td className="tr" style={{ fontWeight: 700 }}>{fmt(o.grand_total)}</td>
                       <td className="tr">
                         <button className="btn btn-outline btn-sm" onClick={() => showOrderReceipt(o)}>🖨 Receipt</button>
                       </td>
@@ -327,7 +411,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
           </>
         )}
 
-        {/* HELD ORDERS */}
+        {/* ── HELD ORDERS ────────────────────────────────────────────────── */}
         {activeTab === 'held' && (
           <div className="card" style={{ padding: 0 }}>
             <table className="data-table">
@@ -350,7 +434,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
                     <td>{o.customer_name || '—'}</td>
                     <td style={{ textTransform: 'capitalize' }}>{o.order_type}</td>
                     <td>{o.items?.length || 0} items</td>
-                    <td className="tr" style={{ fontWeight: 700 }}>{formatCurrency(o.grand_total)}</td>
+                    <td className="tr" style={{ fontWeight: 700 }}>{fmt(o.grand_total)}</td>
                     <td className="tr">
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         <button className="btn btn-primary btn-sm" onClick={() => handleResumeHeld(o)}>▶ Resume</button>
@@ -364,7 +448,7 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
           </div>
         )}
 
-        {/* REPRINT */}
+        {/* ── REPRINT ────────────────────────────────────────────────────── */}
         {activeTab === 'reprint' && (
           <div>
             <div className="card" style={{ maxWidth: 500 }}>
@@ -379,17 +463,12 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
                 />
                 <button className="btn btn-primary" onClick={handleSearch}>Search</button>
               </div>
-
               {foundOrder && (
                 <div style={{ marginTop: 16, padding: 14, background: 'var(--surface)', borderRadius: 8, fontSize: 13 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6 }}>{foundOrder.order_number}</div>
                   <div>Customer: {foundOrder.customer_name || '—'} {foundOrder.customer_phone ? `| ${foundOrder.customer_phone}` : ''}</div>
-                  <div style={{ marginTop: 4 }}>Total: {formatCurrency(foundOrder.grand_total)}</div>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    style={{ marginTop: 10 }}
-                    onClick={() => showOrderReceipt(foundOrder)}
-                  >
+                  <div style={{ marginTop: 4 }}>Total: {fmt(foundOrder.grand_total)}</div>
+                  <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => showOrderReceipt(foundOrder)}>
                     🖨 View & Reprint
                   </button>
                 </div>
@@ -398,133 +477,13 @@ export default function Operations({ settings, onDayClose, onDayReopen }) {
           </div>
         )}
 
-        {/* QUICK ADD CONFIG */}
-        {activeTab === 'quickadd' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>⭐ Quick Add Featured Items</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  Checked items appear in the <b>⭐ Featured</b> tab on the billing Quick Add bar.
-                  All items remain searchable regardless.
-                </div>
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={saveQaConfig}
-                disabled={qaSaving}
-                style={{ minWidth: 100 }}
-              >
-                {qaSaving ? 'Saving…' : '💾 Save'}
-              </button>
-            </div>
-
-            <div className="form-group" style={{ maxWidth: 340, marginBottom: 12 }}>
-              <input
-                className="form-input"
-                placeholder="Search items…"
-                value={qaSearch}
-                onChange={e => setQaSearch(e.target.value)}
-              />
-            </div>
-
-            {/* Menu items section */}
-            {menuItems.filter(m => m.active && (!qaSearch || m.name.toLowerCase().includes(qaSearch.toLowerCase()))).length > 0 && (
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-title" style={{ marginBottom: 10 }}>🍕 Menu Items</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
-                  {menuItems
-                    .filter(m => m.active && (!qaSearch || m.name.toLowerCase().includes(qaSearch.toLowerCase())))
-                    .map(m => {
-                      const fid = `menu_${m.id}`
-                      const checked = qaFeatured.includes(fid)
-                      return (
-                        <label
-                          key={m.id}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                            borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--accent-lt)' : 'var(--surface)',
-                            border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleQaItem(fid)}
-                            style={{ accentColor: 'var(--accent)', width: 15, height: 15, flexShrink: 0 }}
-                          />
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {m.emoji ? `${m.emoji} ` : ''}{m.name}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                              ₹{m.has_variants && m.variants?.length ? m.variants[0].price : m.base_price}
-                              {m.has_variants ? ' · variants' : ''}
-                            </div>
-                          </div>
-                        </label>
-                      )
-                    })}
-                </div>
-              </div>
-            )}
-
-            {/* Billable inventory items section */}
-            {billableItems.filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase())).length > 0 && (
-              <div className="card">
-                <div className="card-title" style={{ marginBottom: 10 }}>🧾 Inventory Items</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
-                  {billableItems
-                    .filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase()))
-                    .map(b => {
-                      const fid = `inv_${b.id}`
-                      const checked = qaFeatured.includes(fid)
-                      return (
-                        <label
-                          key={b.id}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                            borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--accent-lt)' : 'var(--surface)',
-                            border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleQaItem(fid)}
-                            style={{ accentColor: 'var(--accent)', width: 15, height: 15, flexShrink: 0 }}
-                          />
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              🧾 {b.name}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>₹{b.sale_price} · {b.current_stock} {b.base_unit}</div>
-                          </div>
-                        </label>
-                      )
-                    })}
-                </div>
-              </div>
-            )}
-
-            {menuItems.length === 0 && billableItems.length === 0 && (
-              <div style={{ color: 'var(--muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>
-                No items found. Add menu items or billable inventory items first.
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {showReceipt && (
         <ReceiptModal
           receiptData={{ ...showReceipt, _type: 'customer' }}
           onClose={() => setShowReceipt(null)}
-          onPrint={() => {
-            const text = `${showReceipt.orderNumber}\n---\n`
-            window.api.printReceipt(text)
-            toast('Sent to printer')
-          }}
+          onPrint={() => { window.api.printReceipt(`${showReceipt.orderNumber}\n---\n`); toast('Sent to printer') }}
           onPrintKitchen={() => {}}
         />
       )}

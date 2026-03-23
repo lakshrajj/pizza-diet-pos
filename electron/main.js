@@ -764,6 +764,12 @@ ipcMain.handle('addon:delete', (_, id) => {
   return { success: true }
 })
 
+// Returns all distinct variant names from menu items (used for addon size-pricing UI)
+ipcMain.handle('variant:getAll', () => {
+  return db.prepare('SELECT DISTINCT variant_name FROM item_variants ORDER BY variant_name').all()
+    .map(r => r.variant_name)
+})
+
 // ─── INVENTORY CATEGORIES ────────────────────────────────────────────────────
 ipcMain.handle('invCategory:getAll', () => {
   return db.prepare('SELECT * FROM inventory_categories ORDER BY name').all()
@@ -1091,6 +1097,64 @@ ipcMain.handle('reports:orders', (_, dateFrom, dateTo) => {
   return db.prepare(`
     SELECT * FROM orders WHERE status = 'billed' AND DATE(billed_at) BETWEEN ? AND ?
     ORDER BY billed_at DESC
+  `).all(from, to)
+})
+
+// Items sold grouped by category — for Top Selling by Category report
+ipcMain.handle('reports:byCategoryItems', (_, dateFrom, dateTo) => {
+  const from = dateFrom || new Date().toISOString().slice(0, 10)
+  const to = dateTo || from
+
+  const rows = db.prepare(`
+    SELECT
+      COALESCE(c.name, 'Other') as category,
+      COALESCE(c.emoji, '') as cat_emoji,
+      oi.item_name,
+      SUM(oi.qty) as total_qty,
+      SUM(oi.line_total) as total_revenue
+    FROM order_items oi
+    JOIN orders o ON oi.order_id = o.id
+    LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+    LEFT JOIN menu_categories c ON m.category_id = c.id
+    WHERE o.status = 'billed' AND DATE(o.billed_at) BETWEEN ? AND ?
+    GROUP BY COALESCE(c.name, 'Other'), oi.item_name
+    ORDER BY COALESCE(c.name, 'Other'), total_qty DESC
+  `).all(from, to)
+
+  const map = {}
+  rows.forEach(r => {
+    if (!map[r.category]) {
+      map[r.category] = { category: r.category, cat_emoji: r.cat_emoji, items: [], total_qty: 0, total_revenue: 0 }
+    }
+    map[r.category].items.push({ item_name: r.item_name, total_qty: r.total_qty, total_revenue: r.total_revenue })
+    map[r.category].total_qty += r.total_qty
+    map[r.category].total_revenue += r.total_revenue
+  })
+
+  const groups = Object.values(map).sort((a, b) => b.total_revenue - a.total_revenue)
+  const grand_qty = groups.reduce((s, g) => s + g.total_qty, 0)
+  const grand_revenue = groups.reduce((s, g) => s + g.total_revenue, 0)
+  return { groups, grand_qty, grand_revenue }
+})
+
+// Stock consumed from sales for date range (recipe deductions + direct inventory billing)
+ipcMain.handle('reports:stockConsumed', (_, dateFrom, dateTo) => {
+  const from = dateFrom || new Date().toISOString().slice(0, 10)
+  const to = dateTo || from
+
+  return db.prepare(`
+    SELECT
+      ii.name as item_name,
+      ii.base_unit,
+      ii.current_stock,
+      SUM(ABS(sm.quantity)) as total_consumed,
+      COUNT(*) as movement_count
+    FROM stock_movements sm
+    JOIN inventory_items ii ON sm.inventory_item_id = ii.id
+    WHERE sm.movement_type = 'sale'
+      AND DATE(sm.created_at) BETWEEN ? AND ?
+    GROUP BY ii.id
+    ORDER BY total_consumed DESC
   `).all(from, to)
 })
 

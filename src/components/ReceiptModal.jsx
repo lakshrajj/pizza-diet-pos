@@ -77,13 +77,16 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
                     <span className="rb">₹{baseTotal.toFixed(2)}</span>
                   </div>
 
-                  {/* Each add-on as its own line with price */}
-                  {item.addons?.map((a, ai) => (
-                    <div key={ai} className="rrow" style={{ fontSize: 11, paddingLeft: 10, color: '#444' }}>
-                      <span>+ {a.name}{item.qty > 1 ? ` ×${item.qty}` : ''}</span>
-                      <span>₹{(a.price * item.qty).toFixed(2)}</span>
-                    </div>
-                  ))}
+                  {/* Each add-on as its own line with its independent qty and price */}
+                  {item.addons?.map((a, ai) => {
+                    const aQty = a.qty || 1
+                    return (
+                      <div key={ai} className="rrow" style={{ fontSize: 11, paddingLeft: 10, color: '#2e8b57', fontWeight: 500 }}>
+                        <span>+ {a.emoji ? `${a.emoji} ` : ''}{a.name}{aQty > 1 ? ` ×${aQty}` : ''}</span>
+                        <span>₹{(a.price * aQty).toFixed(2)}</span>
+                      </div>
+                    )
+                  })}
 
                   {/* Discount line */}
                   {hasDisc && (
@@ -157,11 +160,14 @@ export default function ReceiptModal({ receiptData, onClose, onPrint, onPrintKit
                 <div style={{ fontWeight: 700, fontSize: 13 }}>
                   {item.qty}×  {item.name}{item.variantName ? ` (${item.variantName})` : ''}
                 </div>
-                {item.addons?.map((a, ai) => (
-                  <div key={ai} style={{ fontSize: 11, paddingLeft: 22, color: '#333' }}>
-                    + {a.name}
-                  </div>
-                ))}
+                {item.addons?.map((a, ai) => {
+                  const aQty = a.qty || 1
+                  return (
+                    <div key={ai} style={{ fontSize: 11, paddingLeft: 22, color: '#333' }}>
+                      + {a.name}{aQty > 1 ? ` ×${aQty}` : ''}
+                    </div>
+                  )
+                })}
                 {item.specialNote && (
                   <div style={{ fontSize: 11, paddingLeft: 22, fontWeight: 700, color: '#c00' }}>
                     ⚠ {item.specialNote}

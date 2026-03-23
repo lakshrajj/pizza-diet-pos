@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('api', {
   updateAddon: (id, data) => ipcRenderer.invoke('addon:update', id, data),
   deleteAddon: (id) => ipcRenderer.invoke('addon:delete', id),
 
+  // Variant names (for addon size-based pricing setup)
+  getVariantNames: () => ipcRenderer.invoke('variant:getAll'),
+
   // Inventory Categories
   getInvCategories: () => ipcRenderer.invoke('invCategory:getAll'),
   addInvCategory: (data) => ipcRenderer.invoke('invCategory:add', data),
@@ -70,6 +73,8 @@ contextBridge.exposeInMainWorld('api', {
   // Reports
   getDailyReport: (from, to) => ipcRenderer.invoke('reports:daily', from, to),
   getOrders: (from, to) => ipcRenderer.invoke('reports:orders', from, to),
+  getByCategoryItems: (from, to) => ipcRenderer.invoke('reports:byCategoryItems', from, to),
+  getStockConsumed: (from, to) => ipcRenderer.invoke('reports:stockConsumed', from, to),
 
   // Day Close
   getDayClose: () => ipcRenderer.invoke('dayClose:get'),

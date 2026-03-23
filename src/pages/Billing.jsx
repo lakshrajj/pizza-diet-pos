@@ -116,11 +116,12 @@ export default function Billing({ settings, dayClosed }) {
       const label   = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}${item.qty > 1 ? ` ×${item.qty}` : ''}`
       const baseAmt = (item.unitPrice * item.qty).toFixed(0)
       text += `${label.slice(0, 24).padEnd(24)} \u20B9${baseAmt}\n`
-      // Add-ons as separate lines with their own price
+      // Add-ons as separate lines — each has its own independent qty
       if (item.addons?.length) {
         item.addons.forEach(a => {
-          const aLabel = `  + ${a.name}${item.qty > 1 ? ` ×${item.qty}` : ''}`
-          text += `${aLabel.slice(0, 24).padEnd(24)} \u20B9${(a.price * item.qty).toFixed(0)}\n`
+          const aQty = a.qty || 1
+          const aLabel = `  + ${a.name}${aQty > 1 ? ` ×${aQty}` : ''}`
+          text += `${aLabel.slice(0, 24).padEnd(24)} \u20B9${(a.price * aQty).toFixed(0)}\n`
         })
       }
       // Discount line
@@ -173,7 +174,10 @@ export default function Billing({ settings, dayClosed }) {
       const label = `${item.name}${item.variantName ? ` (${item.variantName})` : ''}`
       text += `${item.qty}x  ${label}\n`
       if (item.addons?.length) {
-        item.addons.forEach(a => { text += `      + ${a.name}\n` })
+        item.addons.forEach(a => {
+          const aQty = a.qty || 1
+          text += `      + ${a.name}${aQty > 1 ? ` ×${aQty}` : ''}\n`
+        })
       }
       if (item.specialNote) text += `    *** ${item.specialNote} ***\n`
     })
@@ -224,7 +228,8 @@ export default function Billing({ settings, dayClosed }) {
       items: items.map(i => {
         const isInv = String(i.menuItemId).startsWith('inv_')
         const inventoryId = isInv ? parseInt(String(i.menuItemId).replace('inv_', '')) : null
-        const addonSum = (i.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+        // Each addon has its own qty (independent of pizza qty)
+        const addonSum = (i.addons || []).reduce((s, a) => s + (a.price || 0) * (a.qty || 1), 0)
         // Discount on base price only; add-ons always full price
         const discAmt  = i.unitPrice * (i.discountQty || 0) * (i.discountPct || 0) / 100
         return {
@@ -240,7 +245,7 @@ export default function Billing({ settings, dayClosed }) {
           gst_pct: i.gstPct || 0,
           addons: i.addons || [],
           special_note: i.specialNote || '',
-          line_total: i.unitPrice * i.qty - discAmt + addonSum * i.qty,
+          line_total: i.unitPrice * i.qty - discAmt + addonSum,
         }
       }),
     }
@@ -296,7 +301,8 @@ export default function Billing({ settings, dayClosed }) {
       subtotal, total_discount: discount, total_gst: gst, grand_total: grandTotal,
       created_by: user?.id,
       items: items.map(i => {
-        const addonSum = (i.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+        // Each addon has its own independent qty
+        const addonSum = (i.addons || []).reduce((s, a) => s + (a.price || 0) * (a.qty || 1), 0)
         const discAmt  = i.unitPrice * (i.discountQty || 0) * (i.discountPct || 0) / 100
         return {
           menu_item_id: i.menuItemId,
@@ -305,7 +311,7 @@ export default function Billing({ settings, dayClosed }) {
           qty: i.qty, unit_price: i.unitPrice, discount_pct: i.discountPct || 0,
           discount_qty: i.discountQty || 0,
           gst_pct: i.gstPct || 0, addons: i.addons || [], special_note: i.specialNote || '',
-          line_total: i.unitPrice * i.qty - discAmt + addonSum * i.qty,
+          line_total: i.unitPrice * i.qty - discAmt + addonSum,
         }
       }),
     })

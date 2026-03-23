@@ -18,7 +18,7 @@ import CustomerManager from './pages/CustomerManager'
 const NAV_MAIN = [
   { key: 'billing',    label: 'Billing',              icon: '🧾', staffAllowed: true  },
   { key: 'inventory',  label: 'Stock',                icon: '📦', staffAllowed: false },
-  { key: 'operations', label: 'Inventory & Reports',  icon: '📊', staffAllowed: true  },
+  { key: 'operations', label: 'Inventory & Sales',    icon: '📊', staffAllowed: true  },
   { key: 'settings',   label: 'Settings',             icon: '🔧', staffAllowed: false },
 ]
 

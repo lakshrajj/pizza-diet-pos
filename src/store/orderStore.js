@@ -2,9 +2,9 @@ import { create } from 'zustand'
 
 let billCounter = 1
 
-// Helper: sum of addon prices for one line item
+// Helper: sum of addon prices for one line item (each addon has its own qty)
 function addonTotal(item) {
-  return (item.addons || []).reduce((s, a) => s + (a.price || 0), 0)
+  return (item.addons || []).reduce((s, a) => s + (a.price || 0) * (a.qty || 1), 0)
 }
 
 // Effective price per unit = base + addons
@@ -58,6 +58,21 @@ export const useOrderStore = create((set, get) => ({
         // Cap discountQty if qty decreased
         const discountQty = Math.min(i.discountQty || 0, newQty)
         return { ...i, qty: newQty, discountQty }
+      })
+    })
+  },
+
+  // Change qty of a specific addon on a line item (independent of pizza qty)
+  changeAddonQty: (rowKey, addonId, delta) => {
+    set({
+      items: get().items.map(i => {
+        if (i.rowKey !== rowKey) return i
+        const addons = (i.addons || []).map(a => {
+          if (a.id !== addonId) return a
+          const newQty = Math.max(1, (a.qty || 1) + delta)
+          return { ...a, qty: newQty }
+        })
+        return { ...i, addons }
       })
     })
   },
@@ -122,20 +137,20 @@ export const useOrderStore = create((set, get) => ({
   },
 
   // ── Computed values ────────────────────────────────────────────────────────
-  // Subtotal = sum of (base + addons) × qty, before any discount
+  // Subtotal = base × pizzaQty + each addon × its own qty (addons are independent)
   getSubtotal: () => {
-    return get().items.reduce((sum, i) => sum + effectiveUnit(i) * i.qty, 0)
+    return get().items.reduce((sum, i) => sum + i.unitPrice * i.qty + addonTotal(i), 0)
   },
 
-  // Total discount = sum of discounted amounts across all items
+  // Total discount = sum of discounted amounts across all items (base only)
   getTotalDiscount: () => {
     return get().items.reduce((sum, i) => sum + lineDiscount(i), 0)
   },
 
   getTotalGST: () => {
     return get().items.reduce((sum, i) => {
-      // Taxable = base after discount + addons at full price
-      const taxable = (i.unitPrice * i.qty - lineDiscount(i)) + addonTotal(i) * i.qty
+      // Taxable = base after discount + addons (each addon already has its own qty baked in)
+      const taxable = (i.unitPrice * i.qty - lineDiscount(i)) + addonTotal(i)
       return sum + taxable * ((i.gstPct || 0) / 100)
     }, 0)
   },

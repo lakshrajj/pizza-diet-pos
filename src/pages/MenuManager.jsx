@@ -574,7 +574,7 @@ export default function MenuManager() {
   const [subcategories, setSubcategories] = useState([])
   const [addons, setAddons] = useState([])
   const [inventoryItems, setInventoryItems] = useState([])
-  const [activeTab, setActiveTab] = useState('items')   // items | addons
+  const [activeTab, setActiveTab] = useState('items')   // items | addons | quickadd
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState(null)
   const [showAddonForm, setShowAddonForm] = useState(false)
@@ -583,7 +583,30 @@ export default function MenuManager() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
+  // ── Quick Add config ──────────────────────────────────────────────────────
+  const [qaFeatured, setQaFeatured]       = useState([])
+  const [billableItems, setBillableItems] = useState([])
+  const [qaSearch, setQaSearch]           = useState('')
+  const [qaSaving, setQaSaving]           = useState(false)
+
   useEffect(() => { loadAll() }, [])
+
+  useEffect(() => {
+    if (activeTab === 'quickadd') {
+      window.api.getBillableInventory().then(b => setBillableItems(b || []))
+      window.api.getQuickAddConfig().then(ids => setQaFeatured(ids || []))
+    }
+  }, [activeTab])
+
+  const toggleQaItem = (id) => {
+    setQaFeatured(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  const saveQaConfig = async () => {
+    setQaSaving(true)
+    await window.api.saveQuickAddConfig(qaFeatured)
+    setQaSaving(false)
+    toast('Quick Add layout saved ✓')
+  }
 
   const loadAll = async () => {
     setLoading(true)
@@ -642,6 +665,11 @@ export default function MenuManager() {
               + Add Add-on
             </button>
           )}
+          {activeTab === 'quickadd' && (
+            <button className="btn btn-primary" onClick={saveQaConfig} disabled={qaSaving}>
+              {qaSaving ? 'Saving…' : '💾 Save Layout'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -649,6 +677,7 @@ export default function MenuManager() {
         <div className="tab-bar">
           <div className={`tab ${activeTab === 'items' ? 'active' : ''}`} onClick={() => setActiveTab('items')}>Menu Items</div>
           <div className={`tab ${activeTab === 'addons' ? 'active' : ''}`} onClick={() => setActiveTab('addons')}>Add-on Manager</div>
+          <div className={`tab ${activeTab === 'quickadd' ? 'active' : ''}`} onClick={() => setActiveTab('quickadd')}>⭐ Quick Add</div>
         </div>
 
         {activeTab === 'items' && (
@@ -756,6 +785,64 @@ export default function MenuManager() {
             toast={toast}
           />
         )}
+
+        {/* ── QUICK ADD TAB ─────────────────────────────────────────────── */}
+        {activeTab === 'quickadd' && (
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Checked items appear in the <b>⭐ Featured</b> tab on the billing Quick Add bar.
+            </div>
+            <div className="form-group" style={{ maxWidth: 340, marginBottom: 14 }}>
+              <input className="form-input" placeholder="Search items…" value={qaSearch} onChange={e => setQaSearch(e.target.value)} />
+            </div>
+
+            {items.filter(m => m.active && (!qaSearch || m.name.toLowerCase().includes(qaSearch.toLowerCase()))).length > 0 && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title" style={{ marginBottom: 10 }}>🍕 Menu Items</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                  {items.filter(m => m.active && (!qaSearch || m.name.toLowerCase().includes(qaSearch.toLowerCase()))).map(m => {
+                    const fid = `menu_${m.id}`
+                    const checked = qaFeatured.includes(fid)
+                    return (
+                      <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--accent-lt)' : 'var(--surface)', border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}` }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleQaItem(fid)} style={{ accentColor: 'var(--accent)', width: 15, height: 15, flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.emoji ? `${m.emoji} ` : ''}{m.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>₹{m.has_variants && m.variants?.length ? m.variants[0].price : m.base_price}{m.has_variants ? ' · variants' : ''}</div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {billableItems.filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase())).length > 0 && (
+              <div className="card">
+                <div className="card-title" style={{ marginBottom: 10 }}>🧾 Stock Items</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                  {billableItems.filter(b => !qaSearch || b.name.toLowerCase().includes(qaSearch.toLowerCase())).map(b => {
+                    const fid = `inv_${b.id}`
+                    const checked = qaFeatured.includes(fid)
+                    return (
+                      <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--accent-lt)' : 'var(--surface)', border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}` }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleQaItem(fid)} style={{ accentColor: 'var(--accent)', width: 15, height: 15, flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🧾 {b.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>₹{b.sale_price} · {b.current_stock} {b.base_unit}</div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {items.length === 0 && billableItems.length === 0 && (
+              <div style={{ color: 'var(--muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>No items found. Add menu items first.</div>
+            )}
+          </div>
+        )}
       </div>
 
       {showForm && (
@@ -776,15 +863,23 @@ export default function MenuManager() {
 // ── Addon tab ──────────────────────────────────────────────────────────────
 function AddonTab({ addons, categories, onRefresh, showForm, editAddon, onCloseForm, onEditAddon, onDeleteAddon, toast }) {
   const [data, setData] = useState({ name: '', emoji: '', base_price: '', has_variant_pricing: false, variant_prices: [], category_ids: [], active: true })
+  const [knownVariants, setKnownVariants] = useState([])  // distinct variant names from DB
+
+  // Load known variant names once for suggestion chips
+  useEffect(() => {
+    window.api.getVariantNames().then(names => setKnownVariants(names || [])).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (editAddon) {
+      // addon_variant_prices from DB comes as [{addon_id, variant_name, price}] — normalize to [{variant_name, price}]
+      const vp = (editAddon.variant_prices || []).map(r => ({ variant_name: r.variant_name, price: r.price ?? '' }))
       setData({
         name: editAddon.name || '',
         emoji: editAddon.emoji || '',
         base_price: editAddon.base_price || '',
         has_variant_pricing: !!editAddon.has_variant_pricing,
-        variant_prices: editAddon.variant_prices || [],
+        variant_prices: vp,
         category_ids: editAddon.category_ids || [],
         active: editAddon.active !== false,
       })
@@ -795,12 +890,32 @@ function AddonTab({ addons, categories, onRefresh, showForm, editAddon, onCloseF
 
   const set = (field, val) => setData(d => ({ ...d, [field]: val }))
 
+  // Variant price row helpers
+  const addVpRow = (variantName = '') => {
+    set('variant_prices', [...data.variant_prices, { variant_name: variantName, price: '' }])
+  }
+  const updateVpRow = (idx, field, val) => {
+    const rows = data.variant_prices.map((r, i) => i === idx ? { ...r, [field]: val } : r)
+    set('variant_prices', rows)
+  }
+  const removeVpRow = (idx) => {
+    set('variant_prices', data.variant_prices.filter((_, i) => i !== idx))
+  }
+
+  // Suggestion chip: add a known variant if not already in list
+  const addSuggestion = (variantName) => {
+    if (data.variant_prices.some(r => r.variant_name === variantName)) return
+    addVpRow(variantName)
+  }
+
   const saveAddon = async () => {
     if (!data.name.trim()) { toast('Add-on name required'); return }
     const payload = {
       ...data,
       base_price: parseFloat(data.base_price) || 0,
-      variant_prices: data.variant_prices.map(vp => ({ ...vp, price: parseFloat(vp.price) || 0 })),
+      variant_prices: data.has_variant_pricing
+        ? data.variant_prices.filter(r => r.variant_name.trim()).map(vp => ({ variant_name: vp.variant_name.trim(), price: parseFloat(vp.price) || 0 }))
+        : [],
     }
     let res
     if (editAddon?.id) {
@@ -825,7 +940,7 @@ function AddonTab({ addons, categories, onRefresh, showForm, editAddon, onCloseF
             <tr>
               <th>Icon</th>
               <th>Name</th>
-              <th>Base Price</th>
+              <th>Pricing</th>
               <th>Linked Categories</th>
               <th>Status</th>
               <th className="tr">Actions</th>
@@ -838,7 +953,20 @@ function AddonTab({ addons, categories, onRefresh, showForm, editAddon, onCloseF
               <tr key={a.id}>
                 <td style={{ fontSize: 20 }}>{a.emoji || '➕'}</td>
                 <td style={{ fontWeight: 600 }}>{a.name}</td>
-                <td>₹{a.base_price}</td>
+                <td>
+                  {a.has_variant_pricing && a.variant_prices?.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 11, background: 'rgba(60,179,113,0.15)', color: '#2e8b57', padding: '2px 7px', borderRadius: 10, fontWeight: 700, display: 'inline-block', marginBottom: 2 }}>
+                        📐 Size-based
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {a.variant_prices.map(vp => `${vp.variant_name}: ₹${vp.price}`).join(' · ')}
+                      </span>
+                    </div>
+                  ) : (
+                    <span>₹{a.base_price}</span>
+                  )}
+                </td>
                 <td>
                   {a.category_ids?.length > 0
                     ? a.category_ids.map(cid => categories.find(c => c.id === cid)?.name).filter(Boolean).join(', ')
@@ -859,7 +987,7 @@ function AddonTab({ addons, categories, onRefresh, showForm, editAddon, onCloseF
 
       {showForm && (
         <div className="modal-overlay">
-          <div className="modal-box">
+          <div className="modal-box" style={{ maxWidth: 500 }}>
             <div className="modal-header">
               <div className="modal-title">{editAddon ? 'EDIT ADD-ON' : 'ADD ADD-ON'}</div>
               <button className="modal-close" onClick={onCloseForm}>×</button>
@@ -876,10 +1004,100 @@ function AddonTab({ addons, categories, onRefresh, showForm, editAddon, onCloseF
                     <input className="form-input" value={data.emoji} onChange={e => set('emoji', e.target.value)} placeholder="🧀" maxLength={4} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Base Price ₹</label>
+                    <label className="form-label" style={{ color: data.has_variant_pricing ? 'var(--muted)' : undefined }}>
+                      {data.has_variant_pricing ? 'Default Price ₹ (fallback)' : 'Price ₹'}
+                    </label>
                     <input className="form-input" type="number" value={data.base_price} onChange={e => set('base_price', e.target.value)} placeholder="0" />
                   </div>
                 </div>
+
+                {/* ── Per-size pricing toggle ── */}
+                <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '12px 14px', border: '1px solid var(--border)' }}>
+                  <div className="toggle-wrap" style={{ marginBottom: data.has_variant_pricing ? 12 : 0 }}>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={data.has_variant_pricing}
+                        onChange={e => {
+                          set('has_variant_pricing', e.target.checked)
+                          if (e.target.checked && data.variant_prices.length === 0 && knownVariants.length > 0) {
+                            // Auto-populate all known variant names with blank prices
+                            set('variant_prices', knownVariants.map(v => ({ variant_name: v, price: '' })))
+                          }
+                        }}
+                      />
+                      <span className="slider" />
+                    </label>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>Per-size pricing</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                      (Small/Medium/Large have different prices)
+                    </span>
+                  </div>
+
+                  {data.has_variant_pricing && (
+                    <div>
+                      {/* Suggestion chips */}
+                      {knownVariants.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                          <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>Quick add:</span>
+                          {knownVariants.filter(v => !data.variant_prices.some(r => r.variant_name === v)).map(v => (
+                            <button
+                              key={v} type="button"
+                              onClick={() => addSuggestion(v)}
+                              style={{ fontSize: 11, padding: '3px 10px', border: '1px solid var(--border)', borderRadius: 20, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}
+                            >
+                              + {v}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Price rows */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {data.variant_prices.map((row, idx) => (
+                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 32px', gap: 8, alignItems: 'center' }}>
+                            <input
+                              className="form-input"
+                              style={{ padding: '6px 10px' }}
+                              value={row.variant_name}
+                              onChange={e => updateVpRow(idx, 'variant_name', e.target.value)}
+                              placeholder="Size (e.g. Small)"
+                            />
+                            <div style={{ position: 'relative' }}>
+                              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--muted)' }}>₹</span>
+                              <input
+                                className="form-input"
+                                style={{ paddingLeft: 24, padding: '6px 10px 6px 24px' }}
+                                type="number" min={0}
+                                value={row.price}
+                                onChange={e => updateVpRow(idx, 'price', e.target.value)}
+                                placeholder="0"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeVpRow(idx)}
+                              style={{ width: 28, height: 28, border: '1px solid var(--border)', borderRadius: 6, background: 'transparent', color: 'var(--red, #e53)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => addVpRow()}
+                        style={{ marginTop: 8, fontSize: 12, padding: '5px 14px', border: '1px dashed var(--border)', borderRadius: 6, background: 'transparent', color: 'var(--accent)', cursor: 'pointer', width: '100%' }}
+                      >
+                        + Add size row
+                      </button>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                        Size names must exactly match your menu item variant names (e.g. "Small", "Medium", "Large").
+                        Default price is used when size doesn't match.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">Link to Categories</label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
