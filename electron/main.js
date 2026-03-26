@@ -960,7 +960,7 @@ function deductBillableInventory(items, orderNumber) {
     if (!invId) return
     const curr = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(invId)
     if (!curr) return
-    // Allow negative stock — sale always goes through, stock tracked accurately
+    // Allow negative — shows deficit when stock is over-consumed
     const newStock = curr.current_stock - item.qty
     db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = datetime('now') WHERE id = ?").run(newStock, invId)
     db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id) VALUES (?, ?, ?, ?, ?)').run(
@@ -974,22 +974,30 @@ function deductInventory(items, orderNumber) {
   const ivStmt = db.prepare('SELECT * FROM ingredient_variants WHERE ingredient_id = ? AND variant_name = ?')
 
   items.forEach(item => {
+    if (!item.menu_item_id) return  // Skip billable-inventory items (no recipe)
     const ingredients = ingStmt.all(item.menu_item_id)
     ingredients.forEach(ing => {
+      // Start with base_quantity as the default deduction amount
       let qty = ing.base_quantity
+
+      // For variant items: use variant-specific quantity when it's > 0.
+      // If the variant entry exists but has quantity 0, fall back to base_quantity
+      // so ingredients configured before variants were added still deduct correctly.
       if (item.variant_name) {
         const iv = ivStmt.get(ing.id, item.variant_name)
-        if (iv) qty = iv.quantity
+        if (iv && iv.quantity > 0) qty = iv.quantity
       }
+
       qty *= item.qty
-      if (qty <= 0) return  // Skip zero-quantity entries (variant not mapped to this stock item)
+      if (qty <= 0) return  // Nothing to deduct (ingredient not used for this variant/item)
 
       const curr = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(ing.inventory_item_id)
       if (curr) {
-        const newStock = curr.current_stock - qty  // Allow negative for accurate over-use tracking
+        // Allow negative — shows deficit when stock is over-consumed
+        const newStock = curr.current_stock - qty
         db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = datetime('now') WHERE id = ?").run(newStock, ing.inventory_item_id)
         db.prepare('INSERT INTO stock_movements (inventory_item_id, movement_type, quantity, reason, reference_id) VALUES (?, ?, ?, ?, ?)').run(
-          ing.inventory_item_id, 'sale', qty, `Recipe deduct: ${item.item_name}${item.variant_name ? ' (' + item.variant_name + ')' : ''}`, orderNumber
+          ing.inventory_item_id, 'sale', qty, `Recipe deduct: ${item.item_name}`, orderNumber
         )
       }
     })
